@@ -59,6 +59,15 @@ with sync_playwright() as p:
     assert page.locator('.cursor-grab').evaluate('e=>+getComputedStyle(e).opacity')==1
   assert page.evaluate('dragStarts')==0,'Framer ran a second gesture controller'
   assert page.evaluate("nativeMessages.filter(m=>m.kind==='haptic'&&m.style==='selection').length")>=4
+  # A second fast drag during the exit must not start Framer or replace the
+  # direction already confirmed by the first gesture.
+  count=page.evaluate('swipes.length');starts=page.evaluate('dragStarts')
+  drag(135,0);page.wait_for_timeout(20)
+  x,y=origin();page.mouse.move(x,y);page.mouse.down();page.mouse.move(x-150,y,steps=3);page.mouse.up()
+  page.wait_for_function("!document.querySelector('[data-vrcrp-motion-card]')")
+  assert page.evaluate('swipes.length')==count+1
+  assert page.evaluate('swipes.at(-1).value')=='right'
+  assert page.evaluate('dragStarts')==starts
   # A disappearing card must cancel the action captured for that card.
   count=page.evaluate('swipes.length');drag(135,0);page.wait_for_timeout(60);page.evaluate('fixtureChangeCard()');page.wait_for_timeout(900)
   assert page.evaluate('swipes.length')==count,'committed an obsolete card during replacement'
