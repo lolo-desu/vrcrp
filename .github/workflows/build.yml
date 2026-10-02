@@ -1,0 +1,93 @@
+name: Build vrcrp website iOS IPA
+on:
+  push:
+    branches: [main, vrcrp-web-ios]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check notification previews and live refresh
+        run: node scripts/test-notifications.cjs
+      - name: Build arm64 device application
+        run: bash scripts/build-unsigned.sh
+      - name: Verify unsigned device binary
+        run: |
+          file build/Payload/ERPStable.app/ERPStable
+          lipo build/Payload/ERPStable.app/ERPStable -verify_arch arm64
+          if codesign -dv build/Payload/ERPStable.app 2>/dev/null; then
+            echo 'Unexpected code signature' >&2
+            exit 1
+          fi
+          unzip -t build/ERPStable-unsigned.ipa
+          test -d build/Payload/ERPStable.app/LaunchScreen.storyboardc
+          test -f build/Payload/ERPStable.app/AppIcon60x60@3x.png
+          plutil -extract CFBundleDisplayName raw build/Payload/ERPStable.app/Info.plist
+          shasum -a 256 build/ERPStable-unsigned.ipa > build/SHA256.txt
+      - name: Check keyboard, navigation, card spacing and status bar in iOS Simulator
+        run: bash scripts/simulator-check.sh
+      - name: Check real profile touch gestures and stalled screenshot recovery
+        run: bash scripts/simulator-touch-check.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vrcrp-web-unsigned
+          path: |
+            build/ERPStable-unsigned.ipa
+            build/SHA256.txt
+            build/notification-content.json
+            build/layout-first.json
+            build/layout-reopened.json
+            build/web-keyboard.png
+            build/web-login.png
+            build/tabs-tabs.json
+            build/tabs-modal.json
+            build/tabs-restored.json
+            build/tabs-immediate.json
+            build/app-tabs.png
+            build/ux-*.json
+            build/app-ux.png
+            build/navigation-*.json
+            build/handoff-*.json
+            build/handoff.mov
+            build/handoff-record.log
+            build/motion-*.json
+            build/surfaces-*.json
+            build/surfaces-*.png
+            build/app-motion.png
+            build/simulator-timeout.png
+            build/simulator-timeout.log
+            build/touch-tests.log
+            build/touch-results.xcresult
+          if-no-files-found: error
+          retention-days: 30
+  release:
+    if: github.repository != 'lolo-desu/Action-Build' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: vrcrp-web-unsigned
+          path: release-build
+      - name: Publish verified unsigned IPA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION=$(python3 -c "import plistlib; print(plistlib.load(open('ERPStable/Info.plist','rb'))['CFBundleShortVersionString'])")
+          cp release-build/ERPStable-unsigned.ipa "vrcrp-v${VERSION}-unsigned.ipa"
+          sha256sum "vrcrp-v${VERSION}-unsigned.ipa" > SHA256.txt
+          if gh release view "v${VERSION}" >/dev/null 2>&1; then
+            echo "Version v${VERSION} already published; increment the version before publishing again."
+            exit 1
+          fi
+          gh release create "v${VERSION}" --target "$GITHUB_SHA" --title "vrcrp ${VERSION}" \
+            --notes-file RELEASE_NOTES.md --draft "vrcrp-v${VERSION}-unsigned.ipa" SHA256.txt
+          gh release edit "v${VERSION}" --draft=false

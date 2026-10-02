@@ -1,0 +1,55 @@
+name: ERPStable
+options:
+  deploymentTarget:
+    iOS: '15.0'
+settings:
+  base:
+    PRODUCT_BUNDLE_IDENTIFIER: local.erp.stable
+    SWIFT_VERSION: '5.0'
+targets:
+  ERPStable:
+    type: application
+    platform: iOS
+    sources:
+      - path: ERPStable
+        includes: ['*.m', '*.h']
+      - path: ERPStable
+        includes: ['*.js', '*.png', '*.storyboard']
+        buildPhase: resources
+    settings:
+      base:
+        INFOPLIST_FILE: ERPStable/Info.plist
+        TARGETED_DEVICE_FAMILY: '1,2'
+      configs:
+        Debug:
+          INFOPLIST_FILE: build/touch-Info.plist
+          GCC_PREPROCESSOR_DEFINITIONS: ['$(inherited)', 'ERP_TESTING=1']
+    preBuildScripts:
+      - name: Prepare local simulator fixture configuration
+        script: |
+          python3 - "$SRCROOT/ERPStable/Info.plist" "$SRCROOT/build/touch-Info.plist" <<'PY'
+          import plistlib,sys
+          from pathlib import Path
+          info=plistlib.loads(Path(sys.argv[1]).read_bytes())
+          info['NSAppTransportSecurity']={'NSAllowsLocalNetworking':True}
+          output=Path(sys.argv[2]);output.parent.mkdir(parents=True,exist_ok=True)
+          output.write_bytes(plistlib.dumps(info))
+          PY
+  GestureChecks:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [scripts/GestureChecks]
+    dependencies:
+      - target: ERPStable
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: local.erp.stable.GestureChecks
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  GestureChecks:
+    build:
+      targets:
+        ERPStable: all
+        GestureChecks: [test]
+    test:
+      targets: [GestureChecks]
