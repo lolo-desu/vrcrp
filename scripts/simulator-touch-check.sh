@@ -15,7 +15,13 @@ xcodegen generate --spec project.yml
 python3 scripts/fixture-server.py > build/touch-fixture-server.log 2>&1 &
 SERVER_PID=$!
 SIM_ID="$(xcrun simctl create vrcrp-touch-check com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro)"
-trap 'kill "$SERVER_PID" >/dev/null 2>&1 || true; xcrun simctl shutdown "$SIM_ID" >/dev/null 2>&1 || true' EXIT
+finish_touch_check() {
+  xcrun simctl spawn "$SIM_ID" log show --last 10m --style compact --predicate 'process == "ERPStable" AND eventMessage CONTAINS "Gesture trace"' > build/touch-native.log 2>&1 || true
+  if test -d build/touch-results.xcresult; then xcrun xcresulttool export attachments --path build/touch-results.xcresult --output-path build/touch-attachments --only-failures >/dev/null 2>&1 || true; fi
+  kill "$SERVER_PID" >/dev/null 2>&1 || true
+  xcrun simctl shutdown "$SIM_ID" >/dev/null 2>&1 || true
+}
+trap finish_touch_check EXIT
 xcrun simctl boot "$SIM_ID"
 xcrun simctl bootstatus "$SIM_ID" -b
 set -o pipefail

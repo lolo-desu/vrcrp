@@ -405,12 +405,19 @@ static UIView *ERPFocusedView(UIView *view) {
 }
 - (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gesture {
     if(gesture==self.pullRefresh){CGPoint velocity=[self.pullRefresh velocityInView:self.view],point=[gesture locationInView:self.web];for(id zone in self.horizontalZones)if(CGRectContainsPoint(VRRect(zone),point))return NO;return self.refreshable&&!self.refreshing&&!self.websiteOverlay&&!self.profileOverlay&&!self.keyboardVisible&&!self.textSelected&&!self.pageNavigation.transitioning&&self.web.scrollView.contentOffset.y<=.5&&velocity.y>fabs(velocity.x)*1.2;}
-    return gesture!=self.edgeBack||[self canStartBackAtPoint:[gesture locationInView:self.web] velocity:[self.edgeBack velocityInView:self.view]];
+    BOOL allowed=gesture!=self.edgeBack||[self canStartBackAtPoint:[gesture locationInView:self.web] velocity:[self.edgeBack velocityInView:self.view]];
+#if ERP_TESTING
+    if([NSProcessInfo.processInfo.arguments containsObject:@"--verify-gestures"]&&gesture==self.edgeBack)NSLog(@"Gesture trace shouldBegin=%d enabled=%d back=%d point=%@ velocity=%@ zones=%@ selections=%@",allowed,self.edgeBack.enabled,self.canGoBack,NSStringFromCGPoint([gesture locationInView:self.web]),NSStringFromCGPoint([self.edgeBack velocityInView:self.view]),self.horizontalZones,self.selectionZones);
+#endif
+    return allowed;
 }
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)other {
     UIGestureRecognizer *nested=gesture==self.edgeBack||gesture==self.pullRefresh?other:gesture;
-    return ((gesture==self.edgeBack||gesture==self.pullRefresh)||(other==self.edgeBack||other==self.pullRefresh))&&
-        [nested isKindOfClass:UIPanGestureRecognizer.class]&&[nested.view isDescendantOfView:self.web];
+    // WKContentView's touch-delivery/selection recognizers are not all pans.
+    // Let them continue delivering touches while our directional back pan
+    // decides; otherwise ordinary image touches can prevent it from starting.
+    // Actual horizontal editors/selection zones are excluded in shouldBegin.
+    return ((gesture==self.edgeBack||gesture==self.pullRefresh)||(other==self.edgeBack||other==self.pullRefresh))&&[nested.view isDescendantOfView:self.web];
 }
 - (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture shouldBeRequiredToFailByGestureRecognizer:(UIGestureRecognizer *)other {
     // WebKit contains additional pans for nested message/post scrollers. They
@@ -421,6 +428,9 @@ static UIView *ERPFocusedView(UIView *view) {
 }
 - (void)edgeBack:(UIPanGestureRecognizer *)gesture {
     CGFloat distance=MAX(0,[gesture translationInView:self.view].x);
+#if ERP_TESTING
+    if([NSProcessInfo.processInfo.arguments containsObject:@"--verify-gestures"]&&gesture.state!=UIGestureRecognizerStateChanged)NSLog(@"Gesture trace state=%ld distance=%.2f velocity=%@ parent=%@ interactive=%d",(long)gesture.state,distance,NSStringFromCGPoint([gesture velocityInView:self.view]),self.pageNavigation.previewKey,self.pageNavigation.interactive);
+#endif
     if (gesture.state==UIGestureRecognizerStateBegan) {
         if(self.profileOverlay?[self.pageNavigation beginOverlayInteractive]:[self.pageNavigation beginInteractive]){[self haptic:@"selection"];[self.pageNavigation updateInteractive:distance];}
     }

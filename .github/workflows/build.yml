@@ -62,13 +62,16 @@ jobs:
             build/simulator-timeout.png
             build/simulator-timeout.log
             build/touch-tests.log
+            build/touch-native.log
           if-no-files-found: error
           retention-days: 30
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: vrcrp-native-touch-results
-          path: build/touch-results.xcresult
+          path: |
+            build/touch-results.xcresult
+            build/touch-attachments
           if-no-files-found: warn
           retention-days: 30
   release:
