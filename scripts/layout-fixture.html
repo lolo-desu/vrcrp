@@ -34,6 +34,10 @@ history.replaceState({idx:0,key:'initial'},'',location.href);
 function active(){document.querySelectorAll('.app-bottom a').forEach(a=>{if(location.pathname===a.getAttribute('href')||location.pathname.startsWith(a.getAttribute('href')+'/'))a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')})}
 document.querySelectorAll('.app-bottom a').forEach(a=>a.addEventListener('click',e=>{e.preventDefault();window.__fixtureClicks++;history.pushState({idx:(history.state?.idx??0)+1,key:Math.random().toString()},'',a.getAttribute('href'));active()}));
 window.addEventListener('popstate',active);active();
-setTimeout(()=>{const pane=document.querySelector('.messages');pane.scrollTop=pane.scrollHeight;pane.dispatchEvent(new Event('scroll'));},300);
+// Initial chat data arrives only after the native viewport is usable. This is
+// fixture setup, before the test focuses the keyboard; subsequent bottom
+// preservation is entirely the production keyboard controller's behavior.
+function initialMessages(){const native=parseFloat(document.documentElement.style.getPropertyValue('--vrcrp-viewport-height'));if(!native||Math.abs(visualViewport.height-native)>1){setTimeout(initialMessages,35);return;}requestAnimationFrame(()=>requestAnimationFrame(()=>{const pane=document.querySelector('.messages');pane.scrollTop=pane.scrollHeight;pane.dispatchEvent(new Event('scroll'));window.fixtureMessagesReady=true;}));}
+setTimeout(initialMessages,300);
 </script>
 </body></html>
