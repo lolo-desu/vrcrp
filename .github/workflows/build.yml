@@ -62,8 +62,14 @@ jobs:
             build/simulator-timeout.png
             build/simulator-timeout.log
             build/touch-tests.log
-            build/touch-results.xcresult
           if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vrcrp-native-touch-results
+          path: build/touch-results.xcresult
+          if-no-files-found: warn
           retention-days: 30
   release:
     if: github.repository != 'lolo-desu/Action-Build' && github.ref == 'refs/heads/main'

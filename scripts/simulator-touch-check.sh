@@ -2,6 +2,14 @@
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+python3 - <<'PY'
+import plistlib
+from pathlib import Path
+info=plistlib.loads(Path('ERPStable/Info.plist').read_bytes())
+info['NSAppTransportSecurity']={'NSAllowsLocalNetworking':True}
+output=Path('build/touch-Info.plist');output.parent.mkdir(parents=True,exist_ok=True)
+output.write_bytes(plistlib.dumps(info))
+PY
 if ! command -v xcodegen >/dev/null; then brew install xcodegen; fi
 xcodegen generate --spec project.yml
 python3 scripts/fixture-server.py > build/touch-fixture-server.log 2>&1 &

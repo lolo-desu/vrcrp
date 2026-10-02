@@ -158,15 +158,20 @@
     [self layout];NSUInteger generation=++self.generation;CGFloat width=self.web.bounds.size.width;
     self.routeReady=NO;self.animationDone=NO;[self setRunning:YES];
     if([direction isEqual:@"push"]) {
-        self.underlay.image=old.image;self.underlay.hidden=old==nil;self.previewKey=oldKey;
+        self.underlay.image=oldImage;self.underlay.backgroundColor=old.header?:self.header.backgroundColor;self.underlay.hidden=NO;self.previewKey=oldKey;
+        [self.web.superview insertSubview:self.underlay aboveSubview:self.web];
         self.underlay.transform=CGAffineTransformIdentity;self.shade.alpha=0;
         VRPageImage *warm=[self.images objectForKey:self.paths[path]?:@""];
-        self.outgoing.image=warm.image;self.outgoing.hidden=warm==nil;
+        if(![warm.path isEqual:path])warm=nil;
+        self.outgoing.image=warm.image;self.outgoing.backgroundColor=warm.header?:self.header.backgroundColor;self.outgoing.hidden=NO;
         self.outgoing.transform=CGAffineTransformMakeTranslation(width,0);
-        self.web.transform=CGAffineTransformMakeTranslation(width,0);[self shadow:YES];
+        // WebKit still contains the departing list during a React transition.
+        // Slide a distinct destination surface, never translate that live list
+        // into the foreground as though it were the incoming chat/profile.
+        self.web.transform=CGAffineTransformIdentity;
         [UIView animateWithDuration:.24 delay:0 options:UIViewAnimationOptionCurveEaseOut|UIViewAnimationOptionAllowUserInteraction|UIViewAnimationOptionBeginFromCurrentState animations:^{
-            self.web.transform=CGAffineTransformIdentity;self.outgoing.transform=CGAffineTransformIdentity;self.underlay.transform=CGAffineTransformMakeTranslation(-width*.27,0);self.shade.alpha=.2;
-        } completion:^(BOOL finished){if(generation!=self.generation)return;self.animationDone=YES;if(warm)[self holdCover:self.outgoing];else[self complete];}];
+            self.outgoing.transform=CGAffineTransformIdentity;self.underlay.transform=CGAffineTransformMakeTranslation(-width*.27,0);self.shade.alpha=.2;
+        } completion:^(BOOL finished){if(generation!=self.generation)return;self.animationDone=YES;self.underlay.hidden=YES;[self holdCover:self.outgoing];}];
     } else {
         VRPageImage *target=[self.images objectForKey:key]?:[self.images objectForKey:self.paths[path]?:@""];
         self.underlay.image=target.image;self.underlay.hidden=target==nil;self.previewKey=key;

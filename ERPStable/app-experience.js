@@ -238,6 +238,23 @@
     }
     return null;
   }
+  function committedMainPath(){
+    const main=document.getElementById('main'),root=document.getElementById('root'),key=root&&Object.keys(root).find(k=>k.startsWith('__reactContainer$'));
+    const attached=key&&root[key],stack=attached?[{node:attached.stateNode?.current||attached,path:null}]:[],seen=new Set();
+    // The visible main can belong to the previous Suspense route while the
+    // outer router/header already advertises the next location. Follow the
+    // committed child edges: reused fibers can retain stale return pointers.
+    for(let i=0;stack.length&&i<3500;i++){
+      const entry=stack.pop(),node=entry.node;if(!node||seen.has(node))continue;seen.add(node);
+      const matches=node.memoizedProps?.value?.matches;
+      const matched=Array.isArray(matches)&&matches[matches.length-1]?.pathname;
+      const path=typeof matched==='string'?matched:entry.path;
+      if(node.stateNode===main)return path||committedRouterPath();
+      if(node.sibling)stack.push({node:node.sibling,path:entry.path});
+      if(node.child)stack.push({node:node.child,path});
+    }
+    return committedRouterPath();
+  }
   function settle() {
     const owner = ++settleGeneration, key = entryKey(), saved = pendingRestore;
     const started = performance.now();
@@ -267,8 +284,9 @@
       if(owner===settleGeneration&&key===entryKey())post({kind:'routeSettled',entryKey:key,path:location.pathname});
       const paint=()=>{
         if(owner!==settleGeneration||key!==entryKey())return;
-        const committed=committedRouterPath();
-        if(committed!==null&&committed!==location.pathname){requestAnimationFrame(paint);return;}
+        const committed=committedMainPath(),main=document.getElementById('main');
+        const chatReady=!/^\/matches\/[^/]+\/?$/.test(location.pathname)||main?.querySelector('textarea,.card.relative.min-h-0.flex-1.overflow-y-auto,[role="alert"]');
+        if(committed!==null&&committed.replace(/\/$/,'')!==location.pathname.replace(/\/$/,'')||!chatReady){requestAnimationFrame(paint);return;}
         requestAnimationFrame(()=>{if(owner===settleGeneration&&key===entryKey())post({kind:'pagePainted',entryKey:key,path:location.pathname});});
       };requestAnimationFrame(paint);
     }

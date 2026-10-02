@@ -26,6 +26,8 @@ targets:
           GCC_PREPROCESSOR_DEFINITIONS: ['$(inherited)', 'ERP_TESTING=1']
     preBuildScripts:
       - name: Prepare local simulator fixture configuration
+        inputFiles: ['$(SRCROOT)/ERPStable/Info.plist']
+        outputFiles: ['$(SRCROOT)/build/touch-Info.plist']
         script: |
           python3 - "$SRCROOT/ERPStable/Info.plist" "$SRCROOT/build/touch-Info.plist" <<'PY'
           import plistlib,sys

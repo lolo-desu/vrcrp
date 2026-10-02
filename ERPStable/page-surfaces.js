@@ -10,8 +10,8 @@
   let unread=0,queued=false,overlay=null,lastOverlay=false,lastHeader='';
   const backIcon='<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="m15 5-7 7 7 7"/></svg>';
   const css=`
-    html[data-vrcrp-chat="true"] .app-top{display:none!important}
-    html[data-vrcrp-chat="true"] #main{padding-top:0!important}
+    html[data-vrcrp-chat-toolbar="true"] .app-top{display:none!important}
+    html[data-vrcrp-chat-toolbar="true"] #main{padding-top:0!important}
     [data-vrcrp-chat-bar]{position:sticky!important;top:0;z-index:45;flex-shrink:0;background:rgb(var(--surface))!important;border-radius:0!important;border-top:0!important;border-left:0!important;border-right:0!important;min-height:56px}
     @media(max-width:1023px){[data-vrcrp-chat-bar]{box-sizing:border-box!important;max-width:none!important;width:calc(100% + var(--vrcrp-chat-bleed-left,0px) + var(--vrcrp-chat-bleed-right,0px))!important;margin-left:calc(-1 * var(--vrcrp-chat-bleed-left,0px))!important;margin-right:calc(-1 * var(--vrcrp-chat-bleed-right,0px))!important;padding-left:calc(8px + var(--vrcrp-chat-bleed-left,0px))!important;padding-right:calc(8px + var(--vrcrp-chat-bleed-right,0px))!important}}
     [data-vrcrp-chat-back]{display:flex!important;align-items:center;gap:3px;min-width:40px;min-height:44px;flex-shrink:0}
@@ -23,6 +23,7 @@
     [data-vrcrp-install]{display:none!important}
   `;
   function chatHeader(main){
+    if(!main?.querySelector('textarea,.messages,.card.relative.min-h-0.flex-1.overflow-y-auto'))return null;
     const link=main?.querySelector('a[href^="/u/"]');
     const card=link?.closest('.card');
     return card?.querySelector('button')&&card.contains(link)?card:main?.querySelector('.chat-header');
@@ -53,6 +54,7 @@
     if(!document.getElementById('vrcrp-page-surfaces')){const style=document.createElement('style');style.id='vrcrp-page-surfaces';style.textContent=css;document.head.appendChild(style);}
     root.dataset.vrcrpChat=String(chat());const main=document.getElementById('main');
     const header=chat()?chatHeader(main):document.querySelector('.app-top');
+    root.dataset.vrcrpChatToolbar=String(chat()&&!!header);
     if(chat()&&header){
       header.dataset.vrcrpChatBar='true';
       const parent=header.parentElement,rect=parent.getBoundingClientRect(),style=getComputedStyle(parent),width=document.documentElement.clientWidth||innerWidth;
