@@ -36,7 +36,8 @@
   const rect = e => {const r=e.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height};};
   function context() {
     const r=document.documentElement,s=getComputedStyle(r);
-    return [innerWidth,innerHeight,r.lang,r.dataset.preset,r.dataset.scheme,
+    let locale='';try{locale=localStorage.getItem('erp_locale')||'';}catch{}
+    return [innerWidth,innerHeight,r.lang,locale,r.dataset.preset,r.dataset.scheme,
       ...['--surface','--bg','--fg','--primary','--radius-card'].map(k=>s.getPropertyValue(k))].join('|');
   }
   function family(path) {
@@ -90,6 +91,22 @@
   function textStyle(el) {
     const s=getComputedStyle(el);return Object.fromEntries(['fontFamily','fontSize','fontWeight','fontStyle','letterSpacing','lineHeight','color','textTransform','textDecorationLine'].map(k=>[k,s[k]]));
   }
+  function fixedLines(node) {
+    const lines=[],range=document.createRange();let start=0;
+    // Ask WebKit where the real text wraps. Binary search keeps this bounded;
+    // no approximation from character counts or a second layout engine.
+    while(start<node.length&&lines.length<64){
+      let lo=start+1,hi=node.length;
+      while(lo<hi){const end=Math.ceil((lo+hi)/2);range.setStart(node,start);range.setEnd(node,end);
+        const boxes=[...range.getClientRects()].filter(b=>b.width>0&&b.height>0);
+        if(boxes.length<=1)lo=end;else hi=end-1;}
+      range.setStart(node,start);range.setEnd(node,lo);const b=range.getBoundingClientRect(),text=node.textContent.slice(start,lo).replace(/\s+/g,' ').trim();
+      if(b.y>=innerHeight)break;
+      if(text&&b.width>0&&b.height>0)lines.push({rect:{x:b.x,y:b.y,width:b.width,height:b.height},text});
+      start=lo;
+    }
+    range.detach();return lines;
+  }
   function svgCopy(el) {
     const copy=el.cloneNode(true);for(const node of [copy,...copy.querySelectorAll('*')]){
       for(const a of [...node.attributes])if(/^on/.test(a.name)||/href|^id$/.test(a.name))node.removeAttribute(a.name);
@@ -127,7 +144,7 @@
         if(node.nodeType!==Node.TEXT_NODE||!node.textContent.trim())continue;
         const range=document.createRange();range.selectNodeContents(node);const boxes=[...range.getClientRects()];range.detach();
         const fixed=fixedText(el,path);
-        if(fixed&&boxes.length===1){const b=boxes[0];layers.push({rect:{x:b.x,y:b.y,width:b.width,height:b.height},clip,alpha,style:textStyle(el),text:node.textContent.trim()});}
+        if(fixed){for(const line of fixedLines(node))layers.push({...line,clip,alpha,style:textStyle(el)});}
         else for(const b of boxes){if(b.width<1||b.height<1)continue;const h=Math.min(12,b.height*.55);
           layers.push({rect:{x:b.x,y:b.y+(b.height-h)/2,width:b.width,height:h},clip,alpha,mask:true,style:{borderRadius:'6px'}});}
       }
@@ -193,4 +210,7 @@
     // Synthetic browser fixtures only; no network or disk storage.
     size:()=>templates.size};
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',loadLabels,{once:true});else loadLabels();
+  document.fonts?.addEventListener('loadingdone',()=>{
+    setTimeout(()=>{if(window.__vrcrpPaintState?.().ready)remember(location.pathname);},50);
+  });
 })();

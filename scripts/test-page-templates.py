@@ -30,7 +30,7 @@ with sync_playwright() as p:
       const btn=(text,extra='')=>`<button aria-label="${text}" class="btn inline-flex items-center justify-center gap-2 font-semibold rounded-ctl border border-transparent btn-ghost text-fg h-10 px-4 ${extra}">${icon}<span>${text}</span></button>`;
       main.innerHTML=`<div class="mb-5 flex items-center gap-3">${btn('返回')}<div class="min-w-0 flex-1"><h1 class="page-title display truncate text-2xl">${profile?'PRIVATE PERSON NAME':'页面标题'}</h1></div>${btn('更多')}</div>`+
        (chat?`<div class="card mb-2 flex items-center gap-2 p-2" data-vrcrp-chat-bar>${btn('返回')}<a href="/u/peer" class="flex min-w-0 flex-1 items-center gap-2"><img src="data:image/gif;base64,R0lGODlhAQABAIAAAAUEBA==" width="40" height="40"><span>PRIVATE PERSON NAME</span></a>${btn('更多')}</div><div class="card flex-1 min-h-0 p-3"><div class="bubble-them">PRIVATE MESSAGE CONTENT</div></div><div class="mt-2"><form class="card flex items-end gap-1.5 p-2">${btn('图片','w-10 p-0')}${btn('语音','w-10 p-0')}<textarea rows="1" class="input !rounded-2xl resize-y leading-relaxed max-h-32 min-h-[40px] flex-1 resize-none border-0 bg-transparent focus:ring-0" placeholder="輸入訊息…">PRIVATE DRAFT</textarea>${btn('发送','w-10 p-0')}</form><p class="mt-1 text-center text-[11px] text-muted">聊天記錄存在這個瀏覽器。</p></div>`:
-       `<nav class="scrollbar-none flex gap-1 overflow-x-auto border-b border-border mb-4">${btn('选项一')}${btn('选项二')}</nav><section class="card p-4"><img src="data:image/gif;base64,R0lGODlhAQABAIAAAAUEBA==" width="80" height="80"><p>PRIVATE CONTENT BODY</p><label class="block text-sm font-semibold">固定字段</label><input class="input w-full" value="PRIVATE INPUT" placeholder="输入…">${btn('保存')}${btn('关闭')}</section>`);
+       `<nav class="scrollbar-none flex gap-1 overflow-x-auto border-b border-border mb-4">${btn('选项一')}${btn('选项二')}</nav><section class="card p-4"><img src="data:image/gif;base64,R0lGODlhAQABAIAAAAUEBA==" width="80" height="80"><p>PRIVATE CONTENT BODY</p><label class="block text-sm font-semibold">固定字段与需要换行的固定说明文字，加载时每一行都应该保持清晰并位于原来的位置</label><input class="input w-full" value="PRIVATE INPUT" placeholder="输入…">${btn('保存')}${btn('关闭')}</section>`);
       const boxes=[...document.querySelectorAll('.app-top button,#main button,#main input,#main textarea,#main label,#main nav')].map(e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e);return {x:r.x,y:r.y,width:r.width,height:r.height,border:s.borderTopWidth,radius:s.borderTopLeftRadius,bg:s.backgroundColor};}).filter(r=>r.y<793);
       const begin=performance.now();__vrcrpPageTemplates.remember(path);const duration=performance.now()-begin;
       const shell=document.createElement('section');shell.id='wait';document.body.append(shell);
@@ -39,11 +39,12 @@ with sync_playwright() as p:
       const shapes=[...shell.querySelectorAll('[data-vrcrp-shape]')].map(e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e);return {x:r.x,y:r.y,width:r.width,height:r.height,border:s.borderTopWidth,radius:s.borderTopLeftRadius,bg:s.backgroundColor};});
       const compare=boxes.map(b=>shapes.some(a=>['x','y','width','height'].every(k=>Math.abs(a[k]-b[k])<.1)&&a.border===b.border&&a.radius===b.radius&&a.bg===b.bg));
       const text=shell.outerHTML,icons=[...shell.querySelectorAll('[data-vrcrp-raster]')].map(e=>__vrcrpPageTemplates.raster(e));
-      const masks=[...shell.querySelectorAll('.vr-page-block')].length;
-      shell.remove();return {installed,compare,duration,masks,icons:icons.every(Boolean),privateRetained:/PRIVATE|data:image\\/gif|value="/.test(text),models:__vrcrpPageTemplates.size()};
+      const masks=[...shell.querySelectorAll('.vr-page-block')].length;const fixedCopy=[...shell.querySelectorAll('[data-vrcrp-fixed-text]')].map(e=>e.textContent).join('');
+      shell.remove();return {installed,compare,duration,masks,icons:icons.every(Boolean),privateRetained:/PRIVATE|data:image\\/gif|value="/.test(text),fixedCopy,models:__vrcrpPageTemplates.size()};
      }''',path)
      assert result['installed'] and all(result['compare']),(engine,width,preset,path,result)
      assert result['masks']>=2 and result['icons'] and not result['privateRetained'],(path,result)
+     if not path.startswith('/matches/'):assert '需要换行的固定说明文字' in result['fixedCopy'],result
      assert result['models']<=32
      reports.append({'engine':engine,'width':width,'preset':preset,'scheme':scheme,'path':path,'fixedControls':len(result['compare']),'captureMilliseconds':round(result['duration'],2)})
     # A viewport/theme/account change must not reuse an incompatible layout.
