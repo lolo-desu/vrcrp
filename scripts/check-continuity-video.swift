@@ -19,7 +19,7 @@ while let sample=output.copyNextSampleBuffer(),let buffer=CMSampleBufferGetImage
         var marked=0
         for y in 0..<36 { for x in 0..<48 {
             let offset=Int(Double(h)*(0.2+Double(y)*0.62/36))*stride+Int(Double(w)*(0.12+Double(x)*0.76/48))*4
-            if min(p[offset],min(p[offset+1],p[offset+2]))<235 {marked += 1}
+            if min(p[offset],min(p[offset+1],p[offset+2]))<249 {marked += 1}
         }}
         frames += 1;if marked<3 {blankFrames += 1}
     }

@@ -32,8 +32,13 @@
     #vrcrp-page-placeholder .vr-page-media { height:180px; margin-bottom:18px; }
     #vrcrp-page-placeholder .vr-page-compose { position:absolute; bottom:calc(6px + env(safe-area-inset-bottom)); left:12px; right:12px; height:56px; border-radius:16px; background:rgb(var(--surface, 255 255 255)); border:1px solid rgb(var(--fg, 35 35 35) / .12); padding:0 16px; }
     html[data-vrcrp-page-pending="true"] #main { pointer-events:none; }
+    [data-vrcrp-loading-surface="true"] { position:relative!important; display:block!important; min-height:min(360px,calc(var(--vrcrp-viewport-height,100dvh)*.5)); width:100%; overflow:hidden; }
+    [data-vrcrp-loading-surface="true"] > * { visibility:hidden!important; }
+    [data-vrcrp-loading-surface="true"]::before { content:""; position:absolute; inset:12px; background:rgb(var(--surface,255 255 255)); border:1px solid rgb(var(--fg,35 35 35) / .12); border-radius:16px; }
+    [data-vrcrp-loading-surface="true"]::after { content:""; position:absolute; inset:28px; background-image:radial-gradient(circle at 24px 24px,rgb(var(--fg,35 35 35) / .1) 23px,transparent 24px),linear-gradient(rgb(var(--fg,35 35 35) / .1) 0 0),linear-gradient(rgb(var(--fg,35 35 35) / .1) 0 0),linear-gradient(rgb(var(--fg,35 35 35) / .08) 0 0),linear-gradient(rgb(var(--fg,35 35 35) / .1) 0 0),linear-gradient(rgb(var(--fg,35 35 35) / .1) 0 0); background-repeat:no-repeat; background-size:48px 48px,45% 12px,65% 10px,100% 170px,88% 12px,64% 12px; background-position:0 0,66px 7px,66px 31px,0 76px,0 268px,0 296px; animation:vr-inline-breathe 1.8s ease-in-out infinite alternate; }
+    @keyframes vr-inline-breathe { to { opacity:.55; } }
     @keyframes vr-page-breathe { to { background:rgb(var(--fg, 35 35 35) / .14); } }
-    @media(prefers-reduced-motion:reduce) { #vrcrp-page-placeholder .vr-page-block { animation:none; } }
+    @media(prefers-reduced-motion:reduce) { #vrcrp-page-placeholder .vr-page-block,[data-vrcrp-loading-surface="true"]::after { animation:none; } }
   `;
   function post(value) { try { bridge.postMessage(value); } catch {} }
   function rgba(value) {
@@ -234,6 +239,21 @@
   let placeholder=null, presentation=null, departedMain=null, departedNodes=[], departedText='', domVersion=0, paintMemo=null;
   const loadingSelector='.animate-spin,[role="progressbar"],[aria-busy="true"],.loading,[data-loading="true"],[role="status"]';
   const pageTitle=path=>/^\/matches\//.test(path)?'聊天':/^\/profile\/edit/.test(path)?'编辑名片':/^\/u\//.test(path)?'个人资料':/^\/posts\//.test(path)?'帖子':({'/matches':'配对','/likes':'喜欢','/likes/sent':'喜欢','/posts':'广场','/notifications':'通知','/visitors':'访客','/me':'我的','/discover':'探索','/browse':'探索'})[path]||(/^\/settings/.test(path)?'设置':'详情');
+  const loadingSurfaces=new Map();
+  function updateLoadingSurfaces(){
+    const next=new Set();
+    // LoadingBlock is shared by cold routes, profile dialogs and inner panes.
+    // Keep the original status/locale and controls; style only its waiting UI.
+    for(const el of document.querySelectorAll('#main [role="status"],[data-dialog] [role="status"],[role="dialog"] [role="status"]')){
+      if(!el.querySelector('.animate-spin')||el.closest('button,.app-top,.app-bottom')||el.querySelector('button,a[href],input,textarea,select,[role="alert"]'))continue;
+      const label=el.textContent.trim()||el.getAttribute('aria-label')||'加载中';if(label.length>120)continue;
+      next.add(el);
+      if(!loadingSurfaces.has(el)){loadingSurfaces.set(el,el.getAttribute('aria-label'));el.dataset.vrcrpLoadingSurface='true';if(!el.hasAttribute('aria-label'))el.setAttribute('aria-label',label);}
+    }
+    for(const [el,label] of loadingSurfaces)if(!next.has(el)){
+      el.removeAttribute('data-vrcrp-loading-surface');if(label===null)el.removeAttribute('aria-label');else el.setAttribute('aria-label',label);loadingSurfaces.delete(el);
+    }
+  }
   function installPlaceholder(path){
     placeholder?.remove();placeholder=null;
     presentation={key:entryKey(),path};
@@ -403,6 +423,7 @@
     if (!document.getElementById('vrcrp-app-surfaces')) {
       const style = document.createElement('style'); style.id = 'vrcrp-app-surfaces'; style.textContent = css; document.head.appendChild(style);
     }
+    updateLoadingSurfaces();
     if (!ready && (document.querySelector('#root')?.innerText.trim() || document.querySelector('main,form,[role="dialog"]'))) {
       ready = true; post({ kind: 'ready' });
     }
@@ -411,6 +432,7 @@
       if (!routeAnnounced) announceRoute();
       routeAnnounced = false; currentGeneration=generation; lastPath = location.pathname;
     }
+    if(location.pathname!=='/settings/notifications')document.getElementById('vrcrp-system-notifications')?.remove();
     if (location.pathname === '/settings/notifications' && !document.getElementById('vrcrp-system-notifications')) {
       const main = document.getElementById('main');
       if (main) {

@@ -886,6 +886,8 @@ static UIView *ERPFocusedView(UIView *view) {
         step(@"parent-ready",@"continuityPhase==='content'",^{[self verifyJavaScript:@"holdParent=false;continuityRelease()"];},stable),
         step(@"tab-wait",@"location.pathname==='/posts'&&continuityPhase==='loading'",^{self.verifyNavigationStarted=NSDate.timeIntervalSinceReferenceDate;[self verifyJavaScript:@"continuityOpen('/posts',true)"];},waiting),
         step(@"tab-ready",@"continuityPhase==='content'",^{[self verifyJavaScript:@"continuityRelease()"];},stable),
+        step(@"modal-wait",@"(()=>{const el=document.querySelector('#continuity-modal [data-vrcrp-loading-surface]');return !!el&&el.getBoundingClientRect().height>=200&&getComputedStyle(el.querySelector('svg')).visibility==='hidden'})()",^{[self verifyJavaScript:@"continuityModalOpen()"];},stable),
+        step(@"modal-closed",@"!document.getElementById('continuity-modal')",^{[self verifyJavaScript:@"document.querySelector('#continuity-modal button').click()"];},stable),
         step(@"error",@"location.pathname==='/notifications'&&continuityPhase==='error'",^{[self verifyJavaScript:@"continuityOpen('/notifications',true);continuityError()"];},stable),
         step(@"completed",@"location.pathname==='/posts'&&continuityPhase==='content'",^{[self verifyJavaScript:@"__vrcrpBack()"];},stable)
     ];[self runVerifySteps:steps index:0 deadline:0];

@@ -148,7 +148,7 @@
     if(original){original.dataset.vrcrpPageBack='true';return;}
     if(!editing()&&!/^\/u\/[^/]+/.test(location.pathname))return;
     if(main.querySelector('[data-vrcrp-page-back]'))return;
-    const button=document.createElement('button');button.type='button';button.dataset.vrcrpPageBack='true';button.setAttribute('aria-label','返回');button.innerHTML=backIcon;
+    const button=document.createElement('button');button.type='button';button.dataset.vrcrpPageBack='true';button.dataset.vrcrpInjectedBack='true';button.setAttribute('aria-label','返回');button.innerHTML=backIcon;
     button.addEventListener('click',()=>{if(!window.__vrcrpBack?.())window.__vrcrpOpenRoot?.('/me');});
     if(group.classList.contains('flex')&&group.classList.contains('items-center'))group.prepend(button);
     else{const strip=document.createElement('div');strip.dataset.vrcrpBackStrip='true';const label=document.createElement('span');label.textContent=editing()?'编辑名片':'名片详情';strip.append(button,label);main.prepend(strip);}
@@ -157,7 +157,15 @@
     queued=false;const root=document.documentElement;if(!root||!document.head)return;
     if(!document.getElementById('vrcrp-page-surfaces')){const style=document.createElement('style');style.id='vrcrp-page-surfaces';style.textContent=css;document.head.appendChild(style);}
     root.dataset.vrcrpChat=String(chat());const main=document.getElementById('main');
+    if(!editing()&&!/^\/u\/[^/]+/.test(location.pathname)){
+      for(const el of document.querySelectorAll('[data-vrcrp-back-strip],[data-vrcrp-injected-back]'))el.remove();
+    }else for(const strip of document.querySelectorAll('[data-vrcrp-back-strip]')){const label=strip.querySelector('span');const title=editing()?'编辑名片':'名片详情';if(label&&label.textContent!==title)label.textContent=title;}
     const header=chat()?chatHeader(main):document.querySelector('.app-top');
+    for(const el of document.querySelectorAll('[data-vrcrp-chat-bar]'))if(!chat()||el!==header){el.removeAttribute('data-vrcrp-chat-bar');el.style.removeProperty('--vrcrp-chat-bleed-left');el.style.removeProperty('--vrcrp-chat-bleed-right');}
+    for(const button of document.querySelectorAll('[data-vrcrp-chat-back]'))if(!chat()||!header?.contains(button)){
+      const label=button.dataset.vrcrpBackLabel;if(label&&button.getAttribute('aria-label')?.includes('条未读消息'))button.setAttribute('aria-label',label);
+      button.removeAttribute('data-vrcrp-chat-back');button.removeAttribute('data-vrcrp-back-label');button.querySelector('[data-vrcrp-unread]')?.remove();
+    }
     root.dataset.vrcrpChatToolbar=String(chat()&&!!header);
     if(chat()&&header){
       header.dataset.vrcrpChatBar='true';
@@ -170,6 +178,7 @@
     overlay=['/discover','/browse','/visitors','/likes','/likes/sent'].includes(location.pathname)?main?.querySelector('.fixed.inset-0.overflow-y-auto.overscroll-contain'):null;
     if(overlay&&!overlay.querySelector('.sticky button'))overlay=null;
     if(overlay)overlay.dataset.vrcrpProfileOverlay='true';
+    for(const el of document.querySelectorAll('[data-vrcrp-profile-overlay]'))if(el!==overlay)el.removeAttribute('data-vrcrp-profile-overlay');
     const visible=!!overlay;if(visible!==lastOverlay){lastOverlay=visible;post({kind:'profileOverlay',visible});}
     refreshSheet();
     if(header){const r=header.getBoundingClientRect(),style=getComputedStyle(header);const values=style.backgroundColor.match(/[\d.]+/g)?.map(Number)||[255,255,255,1];const geometry={kind:'pageHeader',height:Math.max(0,r.height),color:[values[0]/255,values[1]/255,values[2]/255,values[3]??1]};const fp=JSON.stringify(geometry);if(fp!==lastHeader){lastHeader=fp;post(geometry);}}

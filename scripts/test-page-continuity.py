@@ -15,7 +15,7 @@ with sync_playwright() as p:
   errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
   held=[];hold_list=[False]
   def route(r):
-   if '/api/v1/fixture/profile' in r.request.url or '/api/v1/fixture/list' in r.request.url and hold_list[0]:held.append(r)
+   if '/api/v1/fixture/profile' in r.request.url or '/api/v1/fixture/modal' in r.request.url or '/api/v1/fixture/list' in r.request.url and hold_list[0]:held.append(r)
    elif '/api/v1/fixture/list' in r.request.url:r.fulfill(body=json.dumps({'items':[{'id':'peer','name':'缓存会话'}]}),content_type='application/json')
    elif 'continuity-test.js' in r.request.url:r.fulfill(body=bundle.read_text(),content_type='text/javascript')
    else:r.fulfill(body='<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{--surface:255 255 255;--bg:255 235 117;--fg:35 35 35;--primary:235 75 80}body{margin:0;font:16px system-ui}.app-top{height:56px;background:white}main{min-height:700px}h1{font-size:20px}.app-bottom{position:fixed;bottom:0;background:white;width:100%;height:60px}li{height:72px}article{height:1100px}button{height:44px}</style></head><body><div id="root"></div><script type="module" src="/assets/continuity-test.js"></script></body></html>',content_type='text/html')
@@ -49,14 +49,33 @@ with sync_playwright() as p:
   assert held
   held.pop(0).fulfill(body=json.dumps({'items':[{'id':'peer','name':'返回后同步会话'}]}),content_type='application/json')
   page.wait_for_function('__vrcrpPaintState().ready')
+  assert page.locator('[data-vrcrp-back-strip],[data-vrcrp-injected-back]').count()==0,'Profile back control leaked into the reused parent'
+  page.get_by_role('button',name='详情弹层').click()
+  page.wait_for_selector('[role=dialog] [data-vrcrp-loading-surface]')
+  waiting=page.locator('[role=dialog] [data-vrcrp-loading-surface]')
+  assert waiting.bounding_box()['height']>=200
+  assert waiting.locator('.animate-spin').evaluate('e=>getComputedStyle(e).visibility')=='hidden'
+  assert waiting.get_attribute('aria-label')=='加载中…'
+  assert page.locator('button[aria-label="操作反馈"] [data-vrcrp-loading-surface]').count()==0,'Operation feedback became a page skeleton'
+  page.screenshot(path=str(root/'build'/f'continuity-modal-{engine}.png'))
+  assert held
+  held.pop(0).fulfill(body=json.dumps({'text':'喜欢详情实际内容'}),content_type='application/json')
+  page.get_by_text('喜欢详情实际内容').wait_for()
+  assert page.locator('[role=dialog] [data-vrcrp-loading-surface]').count()==0
+  page.get_by_role('button',name='关闭详情').click()
   page.evaluate("continuityOpen('/profile/edit/basics')");page.wait_for_function('__vrcrpPaintState().ready')
   assert page.locator('input').input_value()=='保留编辑内容'
   page.evaluate('__vrcrpBack()');page.wait_for_function("location.pathname==='/matches'&&__vrcrpPaintState().ready")
+  assert page.locator('[data-vrcrp-back-strip],[data-vrcrp-injected-back]').count()==0,'Editor back control leaked into the reused parent'
+  page.evaluate("continuityOpen('/settings/notifications')");page.wait_for_selector('#vrcrp-system-notifications');page.wait_for_function('__vrcrpPaintState().ready')
+  page.evaluate("continuityOpen('/settings/privacy')");page.wait_for_function('__vrcrpPaintState().ready')
+  assert page.locator('#vrcrp-system-notifications').count()==0,'System settings card leaked into the reused next route'
+  page.evaluate('__vrcrpBack();__vrcrpBack()');page.wait_for_function("location.pathname==='/matches'&&__vrcrpPaintState().ready")
   page.evaluate("continuityOpen('/login')");page.wait_for_function('__vrcrpPaintState().ready')
   assert page.locator('input[placeholder="邮箱"]').is_visible(),'Login outside #main stayed covered'
   assert page.evaluate('continuityBoots')==1 and page.evaluate("performance.getEntriesByType('navigation').length")==1
   assert not errors,errors
-  reports.append({'engine':engine,'suspendedRoute':'outgoing content rejected','slowData':'placeholder persists beyond two seconds','parentMiss':'paint delayed until parent content exists','warmBack':'scroll restored before reveal','editorAndLogin':'usable forms reveal','documentLoads':1})
+  reports.append({'engine':engine,'suspendedRoute':'outgoing content rejected','slowData':'placeholder persists beyond two seconds','parentMiss':'paint delayed until parent content exists','warmBack':'scroll restored before reveal','modalWaiting':'localized skeleton, original close and operation feedback preserved','reusedContainers':'owned back and settings controls removed on departure','editorAndLogin':'usable forms reveal','documentLoads':1})
   browser.close()
 (root/'build/page-continuity-verification.json').write_text(json.dumps(reports,ensure_ascii=False,indent=2))
-print('PASS: Chromium + WebKit real React Router/Suspense, slow data/parent miss, route-specific placeholders, warm scroll restoration and editor/login readiness')
+print('PASS: Chromium + WebKit real React Router/Suspense, slow data/parent miss, route and modal placeholders, original action feedback, warm scroll restoration and editor/login readiness')

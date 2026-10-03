@@ -216,17 +216,17 @@ cp "$DATA_PATH/Documents/"continuity-*.png "$ROOT/build/"
 python3 - "$ROOT/build" <<'PYCONTINUITY'
 import json,sys
 from pathlib import Path
-phases=['root','cold-wait','profile','parent-wait','parent-ready','tab-wait','tab-ready','error','completed']
+phases=['root','cold-wait','profile','parent-wait','parent-ready','tab-wait','tab-ready','modal-wait','modal-closed','error','completed']
 reports={phase:json.loads((Path(sys.argv[1])/f'continuity-{phase}.json').read_text()) for phase in phases}
 for phase,report in reports.items():
  print(phase,report)
  assert 'error' not in report and report['loads']==1 and report['webEnabled'] and report['markedPixels']>12,report
- if phase.endswith('wait'):assert report['handoff'] and not report['transitioning'],report
+ if phase in ['cold-wait','parent-wait','tab-wait']:assert report['handoff'] and not report['transitioning'],report
  else:assert not report['handoff'] and not report['transitioning'],report
 parent=reports['parent-wait']
 assert max(abs(a-b) for a,b in zip(parent['centerRGB'],[23,105,170]))<12,parent
 assert reports['cold-wait']['backEnabled'],reports['cold-wait']
-print('PASS: actual UIKit cold/detail/tab placeholders persist through slow loading; return keeps the cached parent bitmap; usable errors reveal; no white waiting surface or document reload')
+print('PASS: actual UIKit cold/detail/tab placeholders persist through slow loading; cached parent remains visible; detail modals use placeholders with original close; usable errors reveal; no white waiting surface or document reload')
 PYCONTINUITY
 swift "$ROOT/scripts/check-continuity-video.swift" "$ROOT/build/continuity.mov" "$ROOT/build/continuity-video.json"
 xcrun simctl launch --terminate-running-process "$SIM_ID" local.erp.stable --verify-surfaces
