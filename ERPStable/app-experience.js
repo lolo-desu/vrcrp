@@ -113,7 +113,7 @@
   function scheduleGestureZones(){if(!zoneFrame){zoneFrame=true;requestAnimationFrame(()=>{zoneFrame=false;updateGestureZones();});}}
   function updateGestureZones() {
     updateSelection();
-    const main=document.querySelector('[data-vrcrp-profile-overlay]')||document.getElementById('main');
+    const main=document.querySelector('[data-vrcrp-dismissible-sheet]')||document.querySelector('[data-vrcrp-profile-overlay]')||document.getElementById('main');
     if(main!==observedMain){zoneObserver.disconnect();observedMain=main;if(main)zoneObserver.observe(main);}
     if(!main){if(zonesFingerprint!=='[]'){zonesFingerprint='[]';post({kind:'gestureZones',zones:[]});}return;}
     // Clickable photos and ordinary buttons do not own a horizontal gesture.
@@ -163,6 +163,7 @@
     }
     const fingerprint=entryKey()+JSON.stringify(zones);if(fingerprint!==zonesFingerprint){zonesFingerprint=fingerprint;post({kind:'gestureZones',entryKey:entryKey(),zones});}
   }
+  window.__vrcrpRefreshGestureZones=updateGestureZones;
   document.addEventListener('scroll',scheduleGestureZones,{capture:true,passive:true});
   document.addEventListener('pointerdown',updateGestureZones,{capture:true,passive:true});
   let selectionFingerprint='';

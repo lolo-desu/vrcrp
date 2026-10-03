@@ -29,4 +29,4 @@ xcodebuild test -project ERPStable.xcodeproj -scheme GestureChecks \
   -destination "platform=iOS Simulator,id=$SIM_ID" -parallel-testing-enabled NO \
   -derivedDataPath build/UITestDerived -resultBundlePath build/touch-results.xcresult \
   CODE_SIGNING_ALLOWED=NO 2>&1 | tee build/touch-tests.log
-echo 'PASS: actual XCTest photo tap/right-swipe, delayed/warm profile entry, slow vertical scrolling, horizontal album and dropped-snapshot recovery'
+echo 'PASS: actual XCTest photo tap/right-swipe, delayed/warm profile entry, slow vertical scrolling, horizontal album, dropped-snapshot recovery and like-sheet right/down/cancel/body-scroll gestures'

@@ -70,4 +70,40 @@ final class GestureChecks: XCTestCase {
         let photo=app.buttons["资料照片"]
         assertLivePhotoScroll(photo)
     }
+    func openLikeSheet() {
+        let list=app.links["喜欢列表"]
+        if list.exists { list.tap() }
+        let open=app.buttons["打开喜欢详情"]
+        XCTAssertTrue(open.waitForExistence(timeout:5));open.tap()
+        XCTAssertTrue(app.staticTexts["喜欢详情标题"].waitForExistence(timeout:3))
+    }
+    func assertSheetClosed() {
+        let open=app.buttons["打开喜欢详情"]
+        expectation(for:NSPredicate { _,_ in open.isHittable && !self.app.staticTexts["喜欢详情标题"].exists },evaluatedWith:open)
+        waitForExpectations(timeout:4)
+    }
+    func testLikeSheetRightSwipeAndShortDragCancellation() {
+        openLikeSheet()
+        let photo=app.buttons["喜欢资料照片"]
+        photo.coordinate(withNormalizedOffset:CGVector(dx:0.25,dy:0.5)).press(forDuration:0.05,thenDragTo:photo.coordinate(withNormalizedOffset:CGVector(dx:0.43,dy:0.5)),withVelocity:.slow,thenHoldForDuration:0.2)
+        XCTAssertTrue(app.staticTexts["喜欢详情标题"].exists,"Short sheet drag should cancel")
+        photo.coordinate(withNormalizedOffset:CGVector(dx:0.12,dy:0.5)).press(forDuration:0.05,thenDragTo:photo.coordinate(withNormalizedOffset:CGVector(dx:0.98,dy:0.5)),withVelocity:.slow,thenHoldForDuration:0)
+        assertSheetClosed()
+    }
+    func testLikeSheetBodyScrollAndDownSwipe() {
+        openLikeSheet()
+        let photo=app.buttons["喜欢资料照片"]
+        photo.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.9)).press(forDuration:0.05,thenDragTo:photo.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.1)),withVelocity:.slow,thenHoldForDuration:0)
+        let status=app.staticTexts.matching(NSPredicate(format:"label BEGINSWITH %@","弹层滚动 ")).firstMatch
+        expectation(for:NSPredicate { _,_ in status.exists && status.label != "弹层滚动 0" },evaluatedWith:status);waitForExpectations(timeout:4)
+        let content=app.staticTexts["弹层资料内容 3"]
+        content.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.5)).press(forDuration:0.05,thenDragTo:app.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.85)),withVelocity:.slow,thenHoldForDuration:0)
+        XCTAssertTrue(app.staticTexts["喜欢详情标题"].exists,"Pulling scrolled content should scroll, not dismiss")
+        let title=app.staticTexts["喜欢详情标题"]
+        title.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.5)).press(forDuration:0.05,thenDragTo:app.coordinate(withNormalizedOffset:CGVector(dx:0.4,dy:0.7)),withVelocity:.slow,thenHoldForDuration:0)
+        assertSheetClosed()
+        openLikeSheet()
+        app.buttons["喜欢资料照片"].coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.4)).press(forDuration:0.05,thenDragTo:app.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.92)),withVelocity:.slow,thenHoldForDuration:0)
+        assertSheetClosed()
+    }
 }

@@ -8,6 +8,110 @@
   const editing=()=>/^\/profile\/edit(?:\/|$)/.test(location.pathname);
   const chat=()=>/^\/matches\/[^/]+\/?$/.test(location.pathname);
   let unread=0,queued=false,overlay=null,lastOverlay=false,lastHeader='';
+  let sheet=null,sheetGesture=null,sheetMotion=null,suppressedClick=null;
+  const visible=el=>{const r=el.getBoundingClientRect();return el.isConnected&&r.width>0&&r.height>0&&getComputedStyle(el).visibility!=='hidden';};
+  const saveStyle=(el,names)=>names.map(name=>[el,name,el.style.getPropertyValue(name),el.style.getPropertyPriority(name)]);
+  const restoreStyle=saved=>{for(const [el,name,value,priority] of saved)if(value)el.style.setProperty(name,value,priority);else el.style.removeProperty(name);};
+  function restoreSheet(state){if(!state)return;clearTimeout(state.timer);restoreStyle(state.saved);}
+  function refreshSheet(){
+    const panels=[...document.querySelectorAll('[data-dialog] .dialog-panel[role="dialog"]')].filter(visible);
+    const panel=panels.at(-1),host=panel?.closest('[data-dialog]');
+    const header=panel?.firstElementChild;
+    const close=header&&!header.hasAttribute('data-dialog-body')?header.querySelector(':scope > button[aria-label]'):null;
+    const next=panel&&close&&innerWidth<640&&getComputedStyle(host).alignItems==='flex-end'?panel:null;
+    if(next===sheet)return;
+    restoreSheet(sheetGesture);restoreSheet(sheetMotion);sheetGesture=null;sheetMotion=null;
+    sheet?.removeEventListener('touchmove',moveSheetTouches,true);
+    sheet?.removeAttribute('data-vrcrp-dismissible-sheet');sheet=next;
+    if(sheet){sheet.dataset.vrcrpDismissibleSheet='true';sheet.addEventListener('touchmove',moveSheetTouches,{capture:true,passive:false});}
+    window.__vrcrpRefreshGestureZones?.();
+  }
+  function blockedSheetTarget(target,panel,x,y){
+    if(target.closest('input,textarea,select,[contenteditable]:not([contenteditable="false"]),[role="slider"],[role="scrollbar"],video[controls],canvas,.stage,.cursor-grab'))return true;
+    const selection=getSelection();
+    if(selection&&!selection.isCollapsed)for(let i=0;i<selection.rangeCount;i++)for(const r of selection.getRangeAt(i).getClientRects())if(x>=r.left-12&&x<=r.right+12&&y>=r.top-12&&y<=r.bottom+12)return true;
+    for(let el=target;el&&el!==panel;el=el.parentElement){
+      const style=getComputedStyle(el);
+      if(['auto','scroll'].includes(style.overflowX)&&el.scrollWidth>el.clientWidth+4)return true;
+      const key=Object.keys(el).find(k=>k.startsWith('__reactProps$')),props=key&&el[key];
+      if(el.draggable&&!el.matches('img,a')||typeof props?.onPointerMove==='function'||typeof props?.onTouchMove==='function')return true;
+      const fiberKey=Object.keys(el).find(k=>k.startsWith('__reactFiber$'));let fiber=fiberKey&&el[fiberKey];
+      for(let i=0;fiber&&i<18;i++,fiber=fiber.return){
+        const p=fiber.memoizedProps;if((p?.drag===true||p?.drag==='x'||p?.drag==='y')&&p.dragListener!==false)return true;
+        if(fiber!==el[fiberKey]&&typeof fiber.type==='string')break;
+      }
+    }
+    return false;
+  }
+  function beginSheet(target,x,y,id,type){
+    suppressedClick=null;refreshSheet();if(!sheet||sheetMotion?.closing||sheetGesture||!sheet.contains(target))return;
+    if(blockedSheetTarget(target,sheet,x,y))return;
+    restoreSheet(sheetMotion);sheetMotion=null;
+    const host=sheet.closest('[data-dialog]'),backdrop=[...host.children].find(el=>el!==sheet&&el.getAttribute('aria-hidden')==='true');
+    let atTop=true;for(let el=target;el&&el!==sheet;el=el.parentElement)if(['auto','scroll'].includes(getComputedStyle(el).overflowY)&&el.scrollTop>1)atTop=false;
+    const saved=saveStyle(sheet,['transform','transition','will-change']);if(backdrop)saved.push(...saveStyle(backdrop,['opacity','transition']));
+    sheetGesture={panel:sheet,host,backdrop,close:sheet.firstElementChild.querySelector(':scope > button[aria-label]'),saved,x,y,lastX:x,lastY:y,time:performance.now(),velocity:0,distance:0,axis:null,atTop,id,type,path:location.pathname};
+  }
+  function drawSheet(state,distance){
+    const dimension=state.axis==='x'?innerWidth:state.panel.getBoundingClientRect().height;
+    state.panel.style.setProperty('transform',state.axis==='x'?`translate3d(${distance}px,0,0)`:`translate3d(0,${distance}px,0)`,'important');
+    state.panel.style.setProperty('will-change','transform');
+    if(state.backdrop)state.backdrop.style.setProperty('opacity',String(Math.max(0,1-distance/Math.max(1,dimension))),'important');
+  }
+  function moveSheet(event,x,y,type){
+    const state=sheetGesture;if(!state||state.type!==type)return;
+    if(!state.panel.isConnected||state.path!==location.pathname){restoreSheet(state);sheetGesture=null;return;}
+    const dx=x-state.x,dy=y-state.y;
+    if(!state.axis){
+      if(Math.hypot(dx,dy)<8)return;
+      if(dx>Math.abs(dy)*1.15)state.axis='x';
+      else if(dy>Math.abs(dx)*1.15&&state.atTop)state.axis='y';
+      else{sheetGesture=null;return;}
+      state.panel.style.setProperty('transition','none','important');
+      state.backdrop?.style.setProperty('transition','none','important');
+    }
+    if(!event.cancelable){restoreSheet(state);sheetGesture=null;return;}
+    event.preventDefault();
+    const now=performance.now(),delta=state.axis==='x'?x-state.lastX:y-state.lastY;
+    state.velocity=delta/Math.max(1,now-state.time)*1000;state.time=now;state.lastX=x;state.lastY=y;
+    state.distance=Math.max(0,state.axis==='x'?dx:dy);drawSheet(state,state.distance);
+  }
+  function endSheet(x,y,type,cancelled){
+    const state=sheetGesture;if(!state||state.type!==type)return;sheetGesture=null;
+    if(!state.axis){restoreSheet(state);return;}
+    if(performance.now()-state.time>90)state.velocity=0;
+    const dimension=state.axis==='x'?innerWidth:state.panel.getBoundingClientRect().height;
+    const commit=!cancelled&&state.velocity>-120&&state.distance>12&&(state.distance+state.velocity*.16>dimension*.3||state.velocity>700&&state.distance>20);
+    const duration=matchMedia('(prefers-reduced-motion: reduce)').matches?0:180;
+    state.closing=commit;sheetMotion=state;suppressedClick={x,y,until:performance.now()+450};
+    state.panel.style.setProperty('transition',`transform ${duration}ms cubic-bezier(.2,.8,.2,1)`,'important');
+    state.backdrop?.style.setProperty('transition',`opacity ${duration}ms ease-out`,'important');
+    drawSheet(state,commit?dimension+12:0);
+    state.timer=setTimeout(()=>{
+      if(sheetMotion!==state)return;
+      // Close the original modal, never pop the route behind it. Keep the
+      // exiting panel offscreen until React removes it to avoid a final flash.
+      if(commit&&state.panel.isConnected&&sheet===state.panel){
+        state.close.click();refreshSheet();if(sheetMotion!==state)return;
+        state.timer=setTimeout(()=>{restoreSheet(state);sheetMotion=null;refreshSheet();},220);
+      }else{restoreSheet(state);sheetMotion=null;refreshSheet();}
+    },duration);
+  }
+  document.addEventListener('touchstart',event=>{
+    if(event.touches.length!==1){restoreSheet(sheetGesture);sheetGesture=null;return;}
+    const t=event.touches[0];beginSheet(event.target,t.clientX,t.clientY,t.identifier,'touch');
+  },{capture:true,passive:true});
+  function moveSheetTouches(event){
+    if(event.touches.length!==1){restoreSheet(sheetGesture);sheetGesture=null;return;}
+    const t=[...event.touches].find(t=>t.identifier===sheetGesture?.id);if(t)moveSheet(event,t.clientX,t.clientY,'touch');
+  }
+  for(const kind of ['touchend','touchcancel'])document.addEventListener(kind,event=>{const t=[...event.changedTouches].find(t=>t.identifier===sheetGesture?.id);if(t)endSheet(t.clientX,t.clientY,'touch',kind==='touchcancel');},{capture:true,passive:true});
+  document.addEventListener('pointerdown',event=>{if(event.pointerType==='mouse'&&event.button===0)beginSheet(event.target,event.clientX,event.clientY,event.pointerId,'mouse');},{capture:true,passive:true});
+  document.addEventListener('pointermove',event=>{if(event.pointerType==='mouse')moveSheet(event,event.clientX,event.clientY,'mouse');},{capture:true,passive:false});
+  for(const kind of ['pointerup','pointercancel'])document.addEventListener(kind,event=>{if(event.pointerType==='mouse')endSheet(event.clientX,event.clientY,'mouse',kind==='pointercancel');},{capture:true,passive:true});
+  document.addEventListener('click',event=>{if(event.isTrusted&&suppressedClick&&performance.now()<suppressedClick.until&&Math.hypot(event.clientX-suppressedClick.x,event.clientY-suppressedClick.y)<30){suppressedClick=null;event.preventDefault();event.stopImmediatePropagation();}},true);
+  window.addEventListener('pagehide',()=>{restoreSheet(sheetGesture);restoreSheet(sheetMotion);sheetGesture=null;sheetMotion=null;});
+  window.addEventListener('blur',()=>{restoreSheet(sheetGesture);restoreSheet(sheetMotion);sheetGesture=null;sheetMotion=null;});
   const backIcon='<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="m15 5-7 7 7 7"/></svg>';
   const css=`
     html[data-vrcrp-chat-toolbar="true"] .app-top{display:none!important}
@@ -63,10 +167,11 @@
       const back=header.querySelector('button');if(back){back.dataset.vrcrpChatBack='true';updateUnread();}
     }
     pageBack(main);
-    overlay=['/discover','/browse','/visitors'].includes(location.pathname)?main?.querySelector('.fixed.inset-0.overflow-y-auto.overscroll-contain'):null;
+    overlay=['/discover','/browse','/visitors','/likes','/likes/sent'].includes(location.pathname)?main?.querySelector('.fixed.inset-0.overflow-y-auto.overscroll-contain'):null;
     if(overlay&&!overlay.querySelector('.sticky button'))overlay=null;
     if(overlay)overlay.dataset.vrcrpProfileOverlay='true';
     const visible=!!overlay;if(visible!==lastOverlay){lastOverlay=visible;post({kind:'profileOverlay',visible});}
+    refreshSheet();
     if(header){const r=header.getBoundingClientRect(),style=getComputedStyle(header);const values=style.backgroundColor.match(/[\d.]+/g)?.map(Number)||[255,255,255,1];const geometry={kind:'pageHeader',height:Math.max(0,r.height),color:[values[0]/255,values[1]/255,values[2]/255,values[3]??1]};const fp=JSON.stringify(geometry);if(fp!==lastHeader){lastHeader=fp;post(geometry);}}
     for(const button of document.querySelectorAll('button,[role="button"],a')){
       if(button.closest('[data-vrcrp-install]'))continue;
@@ -90,6 +195,6 @@
   };
   window.__vrcrpPullSurface=space=>{const main=document.getElementById('main');if(!main)return;const amount=Math.max(0,Math.min(72,Number(space)||0));main.style.transition=amount||matchMedia('(prefers-reduced-motion: reduce)').matches?'none':'transform 160ms ease-out';main.style.setProperty('--vrcrp-pull-space',`${amount}px`);if(amount)main.dataset.vrcrpPulling='true';else main.removeAttribute('data-vrcrp-pulling');};
   document.addEventListener('click',event=>{if(event.target.closest?.('[data-vrcrp-chat-back],[data-vrcrp-page-back]')&&window.__vrcrpBack?.()){event.preventDefault();event.stopImmediatePropagation();}},true);
-  new MutationObserver(records=>{if(records.some(r=>r.type!=='attributes'||!r.attributeName.startsWith('data-vrcrp')))schedule();}).observe(document,{subtree:true,childList:true,attributes:true,attributeFilter:['class','aria-label','data-vrcrp-chat'],characterData:true});
+  new MutationObserver(records=>{if(records.some(r=>r.type==='childList'))refreshSheet();if(records.some(r=>r.type!=='attributes'||!r.attributeName.startsWith('data-vrcrp')))schedule();}).observe(document,{subtree:true,childList:true,attributes:true,attributeFilter:['class','aria-label','data-vrcrp-chat'],characterData:true});
   window.addEventListener('popstate',schedule);window.addEventListener('resize',schedule);schedule();
 })();

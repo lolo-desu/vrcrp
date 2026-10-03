@@ -121,6 +121,7 @@ static UIView *ERPFocusedView(UIView *view) {
 @property(nonatomic) CGFloat pageHeaderHeight;
 @property(nonatomic) NSUInteger refreshGeneration;
 @property(nonatomic) BOOL profileOverlay;
+@property(nonatomic) BOOL rowPressed;
 @property(nonatomic) BOOL editingProfile;
 @property(nonatomic) BOOL viewingProfile;
 @property(nonatomic, strong) NSArray *horizontalZones;
@@ -367,7 +368,7 @@ static UIView *ERPFocusedView(UIView *view) {
 - (void)captureSnapshot {
     NSUInteger generation=++self.snapshotGeneration;
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,NSEC_PER_SEC/3),dispatch_get_main_queue(),^{
-        if (generation!=self.snapshotGeneration || self.keyboardVisible || self.presentedViewController || self.websiteOverlay || self.profileOverlay || (self.pageNavigation.transitioning||self.pageNavigation.handoff)) return;
+        if (generation!=self.snapshotGeneration || self.keyboardVisible || self.presentedViewController || self.websiteOverlay || self.profileOverlay || self.rowPressed || (self.pageNavigation.transitioning||self.pageNavigation.handoff)) return;
         [self.pageNavigation capture];
     });
 }
@@ -559,6 +560,8 @@ static UIView *ERPFocusedView(UIView *view) {
             CGFloat height=[body[@"height"] doubleValue];if(height>=0&&height<=200)self.pageHeaderHeight=height;[self layoutRefreshHint];[self applyStatusColor:VRColor(body[@"color"],self.statusBarSurface.backgroundColor)];
         } else if ([kind isEqual:@"profileOverlay"]) {
             self.profileOverlay=[body[@"visible"] isEqual:@YES];[self updateBackAvailability];if(self.profileOverlay)[self.pageNavigation cancelCapture];else[self.pageNavigation settled:self.pageNavigation.currentKey];
+        } else if ([kind isEqual:@"rowPress"]) {
+            self.rowPressed=[body[@"active"] isEqual:@YES];if(self.rowPressed){self.snapshotGeneration++;[self.pageNavigation cancelCapture];}
         } else if ([kind isEqual:@"gestureZones"]) {
             if([body[@"zones"] isKindOfClass:NSArray.class]&&[body[@"zones"] count]<=100)self.horizontalZones=body[@"zones"];
         } else if ([kind isEqual:@"selection"]) {
@@ -571,12 +574,12 @@ static UIView *ERPFocusedView(UIView *view) {
             [self applyStatusColor:color];
             [NSUserDefaults.standardUserDefaults setObject:@[@(red),@(green),@(blue),@1] forKey:@"VRHeaderSurface"];
         } else if ([kind isEqual:@"willNavigate"]) {
-            if(!self.keyboardVisible&&!self.websiteOverlay&&!self.profileOverlay&&!self.pageNavigation.transitioning)[self.pageNavigation capture];
+            if(!self.keyboardVisible&&!self.websiteOverlay&&!self.profileOverlay&&!self.rowPressed&&!self.pageNavigation.transitioning)[self.pageNavigation capture];
         } else if ([kind isEqual:@"pagePainted"]) {
             NSString *key=body[@"entryKey"];if([key isKindOfClass:NSString.class]&&key.length<=180){[self.pageNavigation painted:key];[self captureSnapshot];}
         } else if ([kind isEqual:@"routeSettled"]) {
             NSString *key=body[@"entryKey"];
-            if([key isKindOfClass:NSString.class]&&key.length<=180){[self.pageNavigation settled:key];if(!self.keyboardVisible&&!self.websiteOverlay&&!self.profileOverlay)[self.pageNavigation capture];}
+            if([key isKindOfClass:NSString.class]&&key.length<=180){[self.pageNavigation settled:key];if(!self.keyboardVisible&&!self.websiteOverlay&&!self.profileOverlay&&!self.rowPressed)[self.pageNavigation capture];}
         } else if ([kind isEqual:@"viewUpdated"]) {
             [self captureSnapshot];
         } else if ([kind isEqualToString:@"notificationSettings"]) {
@@ -592,7 +595,7 @@ static UIView *ERPFocusedView(UIView *view) {
             NSString *path=body[@"path"];
             if (![path isKindOfClass:NSString.class] || ![path hasPrefix:@"/"] || path.length>500) return;
             if(![body[@"entryKey"] isEqual:self.pageNavigation.currentKey]) {
-                self.horizontalZones=@[];self.selectionZones=@[];self.textSelected=NO;self.websiteOverlay=NO;self.profileOverlay=NO;
+                self.horizontalZones=@[];self.selectionZones=@[];self.textSelected=NO;self.websiteOverlay=NO;self.profileOverlay=NO;self.rowPressed=NO;
             }
             self.routeShowsTabs=[body[@"showTabs"] isEqual:@YES];if(!self.routeShowsTabs)self.bottomNav.hidden=YES;
             self.chatNotifications.activePath=path;
