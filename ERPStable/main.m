@@ -182,9 +182,6 @@ static UIView *ERPFocusedView(UIView *view) {
     NSString *appScript=[NSString stringWithContentsOfURL:[NSBundle.mainBundle URLForResource:@"app-experience" withExtension:@"js"] encoding:NSUTF8StringEncoding error:nil];
     NSAssert(appScript!=nil,@"Missing app-experience.js");
     [configuration.userContentController addUserScript:[[WKUserScript alloc] initWithSource:ERPInjectedScript(appScript) injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]];
-    NSString *swipeScript=[NSString stringWithContentsOfURL:[NSBundle.mainBundle URLForResource:@"swipe-feedback" withExtension:@"js"] encoding:NSUTF8StringEncoding error:nil];
-    NSAssert(swipeScript!=nil,@"Missing swipe-feedback.js");
-    [configuration.userContentController addUserScript:[[WKUserScript alloc] initWithSource:ERPInjectedScript(swipeScript) injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]];
     NSString *contentScript=[NSString stringWithContentsOfURL:[NSBundle.mainBundle URLForResource:@"content-experience" withExtension:@"js"] encoding:NSUTF8StringEncoding error:nil];
     NSAssert(contentScript!=nil,@"Missing content-experience.js");
     [configuration.userContentController addUserScript:[[WKUserScript alloc] initWithSource:ERPInjectedScript(contentScript) injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]];

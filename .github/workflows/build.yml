@@ -26,6 +26,7 @@ jobs:
           unzip -t build/ERPStable-unsigned.ipa
           test -d build/Payload/ERPStable.app/LaunchScreen.storyboardc
           test -f build/Payload/ERPStable.app/AppIcon60x60@3x.png
+          test ! -e build/Payload/ERPStable.app/swipe-feedback.js
           plutil -extract CFBundleDisplayName raw build/Payload/ERPStable.app/Info.plist
           shasum -a 256 build/ERPStable-unsigned.ipa > build/SHA256.txt
       - name: Check keyboard, navigation, card spacing and status bar in iOS Simulator

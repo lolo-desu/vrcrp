@@ -8,6 +8,7 @@ fi
 SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
 OUT="$ROOT/build"
 APP="$OUT/Payload/ERPStable.app"
+rm -rf "$APP"
 mkdir -p "$APP"
 xcrun --sdk iphoneos clang -arch arm64 -isysroot "$SDK" \
   -miphoneos-version-min=15.0 -fobjc-arc -O2 \
@@ -19,7 +20,6 @@ cp "$ROOT/ERPStable/notifications.js" "$APP/notifications.js"
 cp "$ROOT/ERPStable/keyboard.js" "$APP/keyboard.js"
 cp "$ROOT/ERPStable/app-experience.js" "$APP/app-experience.js"
 cp "$ROOT/ERPStable/site-cache.js" "$APP/site-cache.js"
-cp "$ROOT/ERPStable/swipe-feedback.js" "$APP/swipe-feedback.js"
 cp "$ROOT/ERPStable/content-experience.js" "$APP/content-experience.js"
 cp "$ROOT/ERPStable/page-surfaces.js" "$APP/page-surfaces.js"
 xcrun ibtool --compile "$APP/LaunchScreen.storyboardc" "$ROOT/ERPStable/LaunchScreen.storyboard" \
