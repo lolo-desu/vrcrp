@@ -14,7 +14,7 @@ with sync_playwright() as p:
     page.add_init_script("""window.nativeMessages=[];
     window.webkit={messageHandlers:{erpNativeApp:{postMessage:v=>window.nativeMessages.push(v)}}};
     window.fetch=function(url,options){window.lastFixturePromise=Promise.resolve(new Response('{}',{status:String(url).includes('denied')?403:200}));return window.lastFixturePromise};""")
-    page.add_init_script((root/'ERPStable/app-experience.js').read_text())
+    page.add_init_script((root/'ERPStable/page-templates.js').read_text());page.add_init_script((root/'ERPStable/app-experience.js').read_text())
     page.route('https://erp.sex/**',lambda r:r.fulfill(body=fixture,content_type='text/html'))
     page.goto('https://erp.sex/discover')
     page.wait_for_function("nativeMessages.some(m=>m.kind==='navigation'&&m.items?.length===5)")

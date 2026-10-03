@@ -39,7 +39,7 @@ with sync_playwright() as p:
    else:r.fulfill(body='<html><head><style>:root{--surface:255 255 255;--primary:237 83 82}body{margin:0}.app-top{height:56px}button{height:44px}li{min-height:70px}main{min-height:900px}[role=dialog]{position:fixed;inset:90px 20px;background:white}</style></head><body><div id="root"></div><script type="module" src="/assets/index-test.js"></script></body></html>',content_type='text/html')
   page.route('https://erp.sex/**',route)
   page.add_init_script("window.nativeMessages=[];window.webkit={messageHandlers:{erpNativeApp:{postMessage:m=>nativeMessages.push(m)},erpNativeNotifications:{postMessage:m=>nativeMessages.push(m)}}}")
-  for name in ['page-surfaces','interaction','site-cache','notifications','keyboard','app-experience','content-experience']:page.add_init_script((root/'ERPStable'/f'{name}.js').read_text())
+  for name in ['page-surfaces','interaction','site-cache','notifications','keyboard','page-templates','app-experience','content-experience']:page.add_init_script((root/'ERPStable'/f'{name}.js').read_text())
   page.goto('https://erp.sex/likes');page.wait_for_selector('[data-peer="peer-1"]');page.wait_for_timeout(150)
   untouched=page.locator('[data-peer="peer-1"]').element_handle();page.click('.like-more');page.wait_for_selector('[data-peer="peer-4"]')
   page.get_by_role('button',name='用户 3',exact=True).click();page.wait_for_selector('.pass');page.click('.pass');page.wait_for_selector('[data-peer="peer-3"]',state='detached',timeout=1500)

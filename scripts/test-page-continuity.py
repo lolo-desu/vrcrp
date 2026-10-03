@@ -21,7 +21,7 @@ with sync_playwright() as p:
    else:r.fulfill(body='<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{--surface:255 255 255;--bg:255 235 117;--fg:35 35 35;--primary:235 75 80}body{margin:0;font:16px system-ui}.app-top{height:56px;background:white}main{min-height:700px}h1{font-size:20px}.app-bottom{position:fixed;bottom:0;background:white;width:100%;height:60px}li{height:72px}article{height:1100px}button{height:44px}</style></head><body><div id="root"></div><script type="module" src="/assets/continuity-test.js"></script></body></html>',content_type='text/html')
   page.route('https://erp.sex/**',route)
   page.add_init_script('window.nativeMessages=[];window.webkit={messageHandlers:{erpNativeApp:{postMessage:m=>nativeMessages.push({...m,time:performance.now()})}}}')
-  for name in ['page-surfaces','interaction','site-cache','notifications','keyboard','app-experience','content-experience']:page.add_init_script((root/'ERPStable'/f'{name}.js').read_text())
+  for name in ['page-surfaces','interaction','site-cache','notifications','keyboard','page-templates','app-experience','content-experience']:page.add_init_script((root/'ERPStable'/f'{name}.js').read_text())
   page.goto('https://erp.sex/matches');page.wait_for_function("__vrcrpPaintState().ready")
   page.evaluate("continuityOpen('/u/peer')");page.wait_for_function("typeof releaseProfileModule==='function'")
   page.wait_for_timeout(2300)

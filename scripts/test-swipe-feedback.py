@@ -16,7 +16,7 @@ with sync_playwright() as p:
   errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
   page.add_init_script("window.nativeMessages=[];window.webkit={messageHandlers:{erpNativeApp:{postMessage(m){nativeMessages.push(m)}}}}")
   # Exercise the remaining app scripts together. The website owns card gestures.
-  for name in ['page-surfaces','interaction','site-cache','notifications','keyboard','app-experience','content-experience']:
+  for name in ['page-surfaces','interaction','site-cache','notifications','keyboard','page-templates','app-experience','content-experience']:
    page.add_init_script((root/'ERPStable'/f'{name}.js').read_text())
   page.route('https://erp.sex/**',lambda r:r.fulfill(body=bundle.read_text() if r.request.url.endswith('/fixture.js') else html,content_type='text/javascript' if r.request.url.endswith('/fixture.js') else 'text/html'))
   page.goto('https://erp.sex/discover');page.wait_for_selector('.cursor-grab');page.wait_for_timeout(150)

@@ -12,7 +12,7 @@ with sync_playwright() as p:
   page=browser.new_page(viewport={'width':393,'height':793},is_mobile=True,has_touch=True)
   errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
   page.add_init_script("window.nativeMessages=[];window.webkit={messageHandlers:{erpNativeApp:{postMessage:m=>nativeMessages.push(m)}}}")
-  for name in ['page-surfaces','interaction','keyboard','app-experience','content-experience']:
+  for name in ['page-surfaces','interaction','keyboard','page-templates','app-experience','content-experience']:
    page.add_init_script((root/'ERPStable'/f'{name}.js').read_text())
   page.route('https://erp.sex/**',lambda r:r.fulfill(body=fixture,content_type='text/html'))
   page.goto('https://erp.sex/matches');page.wait_for_selector('[data-vrcrp-chat-row]')

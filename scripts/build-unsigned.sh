@@ -23,6 +23,7 @@ cp "$ROOT/ERPStable/app-experience.js" "$APP/app-experience.js"
 cp "$ROOT/ERPStable/site-cache.js" "$APP/site-cache.js"
 cp "$ROOT/ERPStable/content-experience.js" "$APP/content-experience.js"
 cp "$ROOT/ERPStable/page-surfaces.js" "$APP/page-surfaces.js"
+cp "$ROOT/ERPStable/page-templates.js" "$APP/page-templates.js"
 xcrun ibtool --compile "$APP/LaunchScreen.storyboardc" "$ROOT/ERPStable/LaunchScreen.storyboard" \
   --minimum-deployment-target 15.0 --target-device iphone --target-device ipad
 for entry in '120 AppIcon60x60@2x.png' '180 AppIcon60x60@3x.png' '152 AppIcon76x76@2x.png' '167 AppIcon83.5x83.5@2x.png'; do

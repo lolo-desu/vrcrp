@@ -102,7 +102,7 @@
     self.surfaceTitle=[model[@"title"] isKindOfClass:NSString.class]?model[@"title"]:@"";
     NSDictionary *layout=[model[@"placeholderLayout"] isKindOfClass:NSDictionary.class]?model[@"placeholderLayout"]:nil;
     NSString *path=[model[@"path"] isKindOfClass:NSString.class]?model[@"path"]:nil;
-    if(layout&&path&&[layout[@"layers"] isKindOfClass:NSArray.class]&&[layout[@"layers"] count]<=120){
+    if(layout&&path&&[layout[@"layers"] isKindOfClass:NSArray.class]&&[layout[@"layers"] count]<=256){
         self.placeholderLayouts[path]=layout;
         if(self.placeholderLayouts.count>24)for(NSString *other in self.placeholderLayouts.allKeys)if(![other isEqual:path]){[self.placeholderLayouts removeObjectForKey:other];break;}
     }
@@ -134,6 +134,7 @@
         if(![item isKindOfClass:NSDictionary.class])continue;
         CGRect rect=[self surfaceRect:item[@"rect"]],clip=[self surfaceRect:item[@"clip"]];if(CGRectIsEmpty(rect)||CGRectIsEmpty(clip))continue;
         CGContextSaveGState(context);CGContextClipToRect(context,clip);
+        if([item[@"opacity"] isKindOfClass:NSNumber.class])CGContextSetAlpha(context,MAX(0,MIN(1,[item[@"opacity"] doubleValue])));
         NSArray *radii=[item[@"radius"] isKindOfClass:NSArray.class]?item[@"radius"]:@[];UIBezierPath *shape=[self surfacePath:rect radii:radii];
         UIColor *fill=[self color:item[@"fill"] fallback:UIColor.clearColor];
         NSDictionary *shadow=[item[@"shadow"] isKindOfClass:NSDictionary.class]?item[@"shadow"]:nil;
@@ -148,7 +149,12 @@
                 [[self color:borders[i][@"color"] fallback:UIColor.clearColor] setFill];UIRectFill(edge);
             }
         }
-        if([item[@"text"] isKindOfClass:NSString.class]){
+        NSString *pixels=[item[@"image"] isKindOfClass:NSString.class]?item[@"image"]:nil;
+        if(pixels.length>0&&pixels.length<300000){
+            NSData *data=[[NSData alloc] initWithBase64EncodedString:pixels options:0];
+            UIImage *image=data?[UIImage imageWithData:data scale:2]:nil;
+            if(image&&image.size.width<=1200&&image.size.height<=120)[image drawInRect:rect];
+        }else if([item[@"text"] isKindOfClass:NSString.class]){
             UIFont *font=[UIFont systemFontOfSize:MAX(10,MIN(30,[item[@"fontSize"] doubleValue])) weight:[item[@"weight"] doubleValue]>=600?UIFontWeightBold:UIFontWeightRegular];
             [item[@"text"] drawInRect:rect withAttributes:@{NSFontAttributeName:font,NSForegroundColorAttributeName:[self color:item[@"ink"] fallback:self.inkColor?:UIColor.labelColor]}];
         }

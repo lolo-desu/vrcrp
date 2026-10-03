@@ -6,7 +6,7 @@ with sync_playwright() as p:
  browser=p.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH','/usr/bin/chromium'),args=['--no-sandbox'])
  page=browser.new_page(viewport={'width':393,'height':793},is_mobile=True,has_touch=True)
  page.add_init_script("window.nativeMessages=[];window.webkit={messageHandlers:{erpNativeApp:{postMessage:m=>nativeMessages.push(m)}}}")
- for name in ['page-surfaces','interaction','keyboard','app-experience']:page.add_init_script((root/'ERPStable'/f'{name}.js').read_text())
+ for name in ['page-surfaces','interaction','keyboard','page-templates','app-experience']:page.add_init_script((root/'ERPStable'/f'{name}.js').read_text())
  page.route('https://erp.sex/**',lambda r:r.fulfill(body=fixture,content_type='text/html'));page.goto('https://erp.sex/me')
  page.wait_for_function("document.querySelector('[data-vrcrp-install]')")
  assert page.evaluate('navigator.standalone') is True

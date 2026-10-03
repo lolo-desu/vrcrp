@@ -10,7 +10,7 @@ with sync_playwright() as p:
     browser=p.webkit.launch() if engine=='webkit' else p.chromium.launch(executable_path='/usr/bin/chromium',args=['--no-sandbox'])
     page=browser.new_page(viewport={'width':393,'height':793},has_touch=True)
     page.add_init_script("window.nativeMessages=[];window.webkit={messageHandlers:{erpNativeApp:{postMessage:m=>nativeMessages.push(m)}}}")
-    for name in ['keyboard','app-experience','page-surfaces']:
+    for name in ['keyboard','page-templates','app-experience','page-surfaces']:
         page.add_init_script((root/'ERPStable'/f'{name}.js').read_text())
     page.route('https://erp.sex/**',lambda r:r.fulfill(body=fixture,content_type='text/html'))
     page.goto('https://erp.sex/matches')

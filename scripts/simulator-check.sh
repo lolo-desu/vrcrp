@@ -92,12 +92,12 @@ for phase in ['first','reopened']:
     assert abs(data['chatHeight']-data['nativeHeight'])<1,data
     assert data['messageGap']<2 and data['lastMessageBottom']<=data['messagePaneBottom']+1,data
 content=json.loads((Path(sys.argv[1])/'notification-content.json').read_text())
-assert content['title']=='测试联系人 · peer-test-id' and content['subtitle']=='ID: peer-test-id' and content['body']=='测试消息内容',content
+assert content['title']=='测试联系人' and content['subtitle']=='' and content['body']=='测试消息内容',content
 assert content['summaryHydrationAllowed'],content
-assert content['intentAvatar'] and content['intentSender']=='测试联系人 · peer-test-id',content
-assert content['attachmentCount']==1 and content['avatarWidth']==144 and content['avatarHeight']==144,content
+assert content['intentAvatar'] and content['intentSender']=='测试联系人',content
+assert content['attachmentCount']==0 and content['avatarWidth']==144 and content['avatarHeight']==144,content
 assert content['path']=='/matches/thread' and content['thread']=='thread' and content['sound'],content
-print('PASS: real simulator notification sender/ID/content/avatar attachment, keyboard first show/reopen, visible latest message and composer')
+print('PASS: real simulator notification sender/ID/content/communication avatar without a right-side attachment, keyboard first show/reopen, visible latest message and composer')
 PY
 xcrun simctl launch --terminate-running-process "$SIM_ID" local.erp.stable --verify-tabs
 wait_for_report tabs-restored.json
@@ -281,6 +281,7 @@ for phase,r in reports.items():
  assert 'error' not in r and r['loads']==1 and r['webEnabled'],r
 assert reports['departing']['feedbackVisible'] and reports['departing']['transitioning'],reports['departing']
 assert reports['cold-chat']['handoff'] and not reports['cold-chat']['feedbackVisible'] and reports['cold-chat']['measuredShapes']>=12,reports['cold-chat']
+assert reports['cold-chat']['rasterLayers']>=5,reports['cold-chat']
 assert reports['returned']['path']=='/matches' and reports['returned']['pressedRows']==0 and not reports['returned']['feedbackVisible'] and not reports['returned']['handoff'],reports['returned']
 print('PASS: actual UIKit departing list retains immediate press feedback; measured bordered chat skeleton persists during cold load; returned cached parent has no selected row')
 PYFEEDBACK

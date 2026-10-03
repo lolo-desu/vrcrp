@@ -14,7 +14,7 @@ with sync_playwright() as p:
  browser=p.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH','/usr/bin/chromium'),args=['--no-sandbox'])
  page=browser.new_page(viewport={'width':393,'height':793},is_mobile=True,has_touch=True)
  page.add_init_script("window.nativeMessages=[];window.webkit={messageHandlers:{erpNativeApp:{postMessage:m=>nativeMessages.push(m)},erpNativeNotifications:{postMessage:m=>nativeMessages.push(m)}}}")
- for name in ['site-cache','notifications','app-experience','content-experience']:page.add_init_script((root/'ERPStable'/f'{name}.js').read_text())
+ for name in ['site-cache','notifications','page-templates','app-experience','content-experience']:page.add_init_script((root/'ERPStable'/f'{name}.js').read_text())
  def handle(route):
   url=urlparse(route.request.url);q=parse_qs(url.query)
   if url.path.startswith('/api/'):

@@ -7,7 +7,7 @@ with sync_playwright() as p:
  browser=p.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH','/usr/bin/chromium'),args=['--no-sandbox'])
  page=browser.new_page(viewport={'width':393,'height':793},is_mobile=True,has_touch=True)
  page.add_init_script("window.nativeMessages=[];window.webkit={messageHandlers:{erpNativeApp:{postMessage:v=>nativeMessages.push(v)}}}")
- page.add_init_script((root/'ERPStable/keyboard.js').read_text());page.add_init_script((root/'ERPStable/app-experience.js').read_text())
+ page.add_init_script((root/'ERPStable/keyboard.js').read_text());page.add_init_script((root/'ERPStable/page-templates.js').read_text());page.add_init_script((root/'ERPStable/app-experience.js').read_text())
  page.route('https://erp.sex/**',lambda r:r.fulfill(body=fixture,content_type='text/html'));page.goto('https://erp.sex/discover')
  for width,height in [(393,793),(320,568),(393,650),(393,793)]:
   page.set_viewport_size({'width':width,'height':height});page.evaluate('v=>__vrcrpSetViewport(v)',{'width':width,'height':height,'keyboardVisible':False})

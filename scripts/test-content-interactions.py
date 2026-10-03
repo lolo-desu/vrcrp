@@ -7,7 +7,7 @@ with sync_playwright() as p:
  browser=p.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH','/usr/bin/chromium'),args=['--no-sandbox'])
  page=browser.new_page(viewport={'width':393,'height':793})
  page.add_init_script('window.nativeMessages=[];window.webkit={messageHandlers:{erpNativeApp:{postMessage:m=>nativeMessages.push(m)}}}')
- for name in ['interaction','app-experience','content-experience']:page.add_init_script((root/'ERPStable'/f'{name}.js').read_text())
+ for name in ['interaction','page-templates','app-experience','content-experience']:page.add_init_script((root/'ERPStable'/f'{name}.js').read_text())
  page.route('https://erp.sex/**',lambda r:r.fulfill(body=html,content_type='text/html'));page.goto('https://erp.sex/posts/test')
  for selector in ['#message','#post','#intro']:
   assert page.locator(selector).evaluate('e=>getComputedStyle(e).userSelect')=='text'

@@ -113,35 +113,29 @@ static NSString *VRFingerprint(NSDictionary *last) {
 - (INSendMessageIntent *)communicationIntent:(NSDictionary *)event path:(NSString *)path avatar:(NSData *)avatar {
     NSString *sender=VRText(event[@"displayId"],120,VRText(event[@"senderId"],120,@"unknown"));
     NSString *name=VRText(event[@"title"],80,@"聊天联系人");
-    NSString *label=[NSString stringWithFormat:@"%@ · %@",name,sender];
     INImage *image=[INImage imageWithImageData:avatar?:[self initialAvatar:name]];
-    INPerson *person=[[INPerson alloc] initWithPersonHandle:[[INPersonHandle alloc] initWithValue:sender type:INPersonHandleTypeUnknown] nameComponents:nil displayName:label image:image contactIdentifier:nil customIdentifier:sender];
+    INPerson *person=[[INPerson alloc] initWithPersonHandle:[[INPersonHandle alloc] initWithValue:sender type:INPersonHandleTypeUnknown] nameComponents:nil displayName:name image:image contactIdentifier:nil customIdentifier:sender];
     INSendMessageIntent *intent=[[INSendMessageIntent alloc] initWithRecipients:nil outgoingMessageType:INOutgoingMessageTypeOutgoingMessageText content:VRText(event[@"body"],180,@"你有新的聊天消息") speakableGroupName:nil conversationIdentifier:path serviceName:@"vrcrp" sender:person attachments:nil];
     [intent setImage:image forParameterNamed:@"sender"];return intent;
 }
 - (UNMutableNotificationContent *)messageContent:(NSDictionary *)event path:(NSString *)path thread:(NSString *)thread avatar:(NSData *)avatar {
     UNMutableNotificationContent *content=[UNMutableNotificationContent new];
     content.title=VRText(event[@"title"],80,@"新聊天消息");content.body=VRText(event[@"body"],180,@"你有新的聊天消息");
-    NSString *displayID=VRText(event[@"displayId"],120,VRText(event[@"senderId"],120,@""));
-    if(displayID.length){content.subtitle=[@"ID: " stringByAppendingString:displayID];content.title=[NSString stringWithFormat:@"%@ · %@",content.title,displayID];}
+    content.subtitle=@"";
     content.sound=UNNotificationSound.defaultSound;if(self.unread>=0)content.badge=@(self.unread);
     content.threadIdentifier=thread;content.categoryIdentifier=@"VRCRP_CHAT";content.userInfo=@{@"path":path};
     NSData *picture=avatar?:[self initialAvatar:content.title];
-    NSURL *file=[NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:[NSString stringWithFormat:@"vrcrp-notification-%@.png",NSUUID.UUID.UUIDString]]];
-    if([picture writeToURL:file atomically:YES]){
-        UNNotificationAttachment *attachment=[UNNotificationAttachment attachmentWithIdentifier:@"sender-avatar" URL:file options:@{UNNotificationAttachmentOptionsThumbnailHiddenKey:@NO} error:nil];
-        if(attachment)content.attachments=@[attachment];
-        if(!attachment)[NSFileManager.defaultManager removeItemAtURL:file error:nil];
-    }
-    // Communication presentation uses the sender photo rather than only an
-    // attachment thumbnail. Keep the standard attachment when signing or the
-    // system does not permit communication notifications.
+    // The sender photo belongs to the communication identity on the left.
+    // A content attachment would duplicate it as a thumbnail on the right.
+    content.attachments=@[];
     INSendMessageIntent *intent=[self communicationIntent:event path:path avatar:picture];
     NSError *error=nil;UNNotificationContent *updated=[content contentByUpdatingWithProvider:intent error:&error];
     if(updated&&!error){
         UNMutableNotificationContent *rich=[updated mutableCopy];
         rich.title=content.title;rich.subtitle=content.subtitle;rich.body=content.body;
-        rich.attachments=content.attachments;rich.userInfo=content.userInfo;rich.categoryIdentifier=content.categoryIdentifier;rich.threadIdentifier=content.threadIdentifier;
+        rich.attachments=@[];
+        NSMutableDictionary *info=[rich.userInfo mutableCopy]?:[NSMutableDictionary new];[info addEntriesFromDictionary:content.userInfo];rich.userInfo=info;
+        rich.categoryIdentifier=content.categoryIdentifier;rich.threadIdentifier=content.threadIdentifier;
         content=rich;
     }
     return content;
@@ -333,8 +327,7 @@ static NSString *VRFingerprint(NSDictionary *last) {
     NSDictionary *event=@{@"title":@"测试联系人",@"displayId":@"peer-test-id",@"senderId":@"peer-test-id",@"body":@"测试消息内容"};
     NSData *avatar=[self initialAvatar:@"測"];
     UNMutableNotificationContent *content=[self messageContent:event path:@"/matches/thread" thread:@"thread" avatar:avatar];
-    UNNotificationAttachment *attachment=content.attachments.firstObject;
-    UIImage *image=attachment?[UIImage imageWithContentsOfFile:attachment.URL.path]:nil;
+    UIImage *image=[UIImage imageWithData:avatar];
     NSString *hydratedID=@"peer-hydrated-test";
     [self handleEvent:@{@"kind":@"snapshot",@"items":@[@{@"matchId":@"hydrated-thread",@"messageId":hydratedID,@"fingerprint":@"summary",@"unread":@1,@"baseline":@NO}]}];
     BOOL baselineAllowsHydration=![self.seen containsObject:hydratedID];
