@@ -20,6 +20,20 @@
     html[data-vrcrp-app="true"] [data-vrcrp-passive-touch="true"] { touch-action: manipulation !important; }
     [data-vrcrp-swipe-group="true"] { max-width: min(100%, var(--vrcrp-swipe-width)) !important; }
     [data-vrcrp-swipe-actions="true"] > * { flex-shrink: 0 !important; }
+    #vrcrp-page-placeholder { position:fixed; inset:0; z-index:47; overflow:hidden; background:rgb(var(--bg, 245 245 245)); color:rgb(var(--fg, 35 35 35)); pointer-events:none; }
+    #vrcrp-page-placeholder .vr-page-top { height:56px; display:flex; align-items:center; gap:12px; padding:0 16px; background:rgb(var(--surface, 255 255 255)); border-bottom:1px solid rgb(var(--fg, 35 35 35) / .12); font:600 17px system-ui; }
+    #vrcrp-page-placeholder button { pointer-events:auto; background:transparent; border:0; color:inherit; height:44px; width:44px; margin-left:-8px; display:grid; place-items:center; touch-action:manipulation; }
+    #vrcrp-page-placeholder .vr-page-body { padding:20px 12px; max-width:768px; margin:auto; }
+    #vrcrp-page-placeholder .vr-page-card { background:rgb(var(--surface, 255 255 255)); border:1px solid rgb(var(--fg, 35 35 35) / .12); border-radius:16px; padding:16px; margin-bottom:14px; }
+    #vrcrp-page-placeholder .vr-page-row { display:flex; align-items:center; gap:12px; margin:8px 0 24px; }
+    #vrcrp-page-placeholder .vr-page-lines { flex:1; }
+    #vrcrp-page-placeholder .vr-page-block { background:rgb(var(--fg, 35 35 35) / .09); border-radius:7px; height:12px; margin:10px 0; animation:vr-page-breathe 1.8s ease-in-out infinite alternate; }
+    #vrcrp-page-placeholder .vr-page-avatar { width:48px; height:48px; flex-shrink:0; border-radius:50%; }
+    #vrcrp-page-placeholder .vr-page-media { height:180px; margin-bottom:18px; }
+    #vrcrp-page-placeholder .vr-page-compose { position:absolute; bottom:calc(6px + env(safe-area-inset-bottom)); left:12px; right:12px; height:56px; border-radius:16px; background:rgb(var(--surface, 255 255 255)); border:1px solid rgb(var(--fg, 35 35 35) / .12); padding:0 16px; }
+    html[data-vrcrp-page-pending="true"] #main { pointer-events:none; }
+    @keyframes vr-page-breathe { to { background:rgb(var(--fg, 35 35 35) / .14); } }
+    @media(prefers-reduced-motion:reduce) { #vrcrp-page-placeholder .vr-page-block { animation:none; } }
   `;
   function post(value) { try { bridge.postMessage(value); } catch {} }
   function rgba(value) {
@@ -217,15 +231,84 @@
   let baseIndex = Number.isInteger(history.state?.idx) ? history.state.idx : 0;
   const entryKey = () => String(entryKeys[index] || 'vr-' + index);
   window.__vrcrpEntryKey=entryKey;
+  let placeholder=null, presentation=null, departedMain=null, departedNodes=[], departedText='', domVersion=0, paintMemo=null;
+  const loadingSelector='.animate-spin,[role="progressbar"],[aria-busy="true"],.loading,[data-loading="true"],[role="status"]';
+  const pageTitle=path=>/^\/matches\//.test(path)?'聊天':/^\/profile\/edit/.test(path)?'编辑名片':/^\/u\//.test(path)?'个人资料':/^\/posts\//.test(path)?'帖子':({'/matches':'配对','/likes':'喜欢','/likes/sent':'喜欢','/posts':'广场','/notifications':'通知','/visitors':'访客','/me':'我的','/discover':'探索','/browse':'探索'})[path]||(/^\/settings/.test(path)?'设置':'详情');
+  function installPlaceholder(path){
+    placeholder?.remove();placeholder=null;
+    presentation={key:entryKey(),path};
+    if(!document.body)return;
+    if(!document.getElementById('vrcrp-app-surfaces')){const style=document.createElement('style');style.id='vrcrp-app-surfaces';style.textContent=css;document.head.append(style);}
+    const shell=document.createElement('section');shell.id='vrcrp-page-placeholder';shell.setAttribute('aria-label','正在加载'+pageTitle(path));
+    const top=document.createElement('div');top.className='vr-page-top';
+    if(index>0&&!roots.has(path)){
+      const back=document.createElement('button');back.type='button';back.setAttribute('aria-label','返回');
+      back.innerHTML='<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m15 5-7 7 7 7"/></svg>';
+      back.addEventListener('click',()=>window.__vrcrpBack?.());top.append(back);
+    }
+    const title=document.createElement('span');title.textContent=pageTitle(path);top.append(title);
+    const block=(width='100%',extra='')=>`<div class="vr-page-block ${extra}" style="width:${width}"></div>`;
+    const row=`<div class="vr-page-row">${block('48px','vr-page-avatar')}<div class="vr-page-lines">${block('46%')}${block('82%')}</div></div>`;
+    const body=document.createElement('div');body.className='vr-page-body';
+    if(/^\/matches\//.test(path)){
+      body.innerHTML=[62,78,48,70].map((w,i)=>`<div class="vr-page-card" style="width:${w}%;margin-left:${i%2?'auto':'0'};height:${i===1?80:58}px">${block('76%')}</div>`).join('');
+      const compose=document.createElement('div');compose.className='vr-page-compose';compose.innerHTML=block('80%');shell.append(compose);
+    }else if(/^\/u\/|^\/profile\/edit|^\/posts(?:\/|$)|^\/discover$|^\/browse$/.test(path)){
+      body.innerHTML=`<div class="vr-page-card">${row}${block('100%','vr-page-media')}${block('92%')}${block('66%')}</div><div class="vr-page-card">${block('84%')}${block('94%')}${block('62%')}</div>`;
+    }else body.innerHTML=`<div class="vr-page-card">${row.repeat(6)}</div>`;
+    shell.append(top,body);document.body.append(shell);placeholder=shell;
+    document.documentElement.dataset.vrcrpPagePending='true';
+  }
+  function clearPlaceholder(){
+    placeholder?.remove();placeholder=null;presentation=null;
+    delete document.documentElement.dataset.vrcrpPagePending;
+  }
+  function meaningfulContent(main){
+    if(!main)return false;
+    const laidOut=el=>{for(let node=el;node&&node!==main.parentElement;node=node.parentElement){const style=getComputedStyle(node);if(style.display==='none'||style.visibility==='hidden'||Number(style.opacity)===0)return false;}return true;};
+    if([...main.querySelectorAll('[role="alert"]')].some(laidOut))return true;
+    // A spinner beside existing rows is background work; an empty route with
+    // only its heading/filter/back controls is still waiting for content.
+    const inputs=[...main.querySelectorAll('textarea,form input:not([type="hidden"]),form select')].filter(el=>!el.closest(loadingSelector)&&laidOut(el));
+    if(inputs.length)return true;
+    const walker=document.createTreeWalker(main,NodeFilter.SHOW_TEXT);
+    for(let n=0,node;(node=walker.nextNode())&&n<180;n++){
+      const text=node.textContent.trim(),el=node.parentElement;
+      if(!text||!el||el.closest(loadingSelector+' ,h1,h2,[data-vrcrp-page-back],[data-vrcrp-chat-back],[data-vrcrp-back-strip],.chat-header,[data-vrcrp-chat-bar],.app-top,.app-bottom,script,style'))continue;
+      if(el.closest('button')&&!el.closest('li,article,.card,[role="listitem"]')&&main.querySelector(loadingSelector))continue;
+      if(/^(?:正在)?(?:加载|载入|连接|缓冲|loading|connecting)(?:中|消息|资料|内容|页面)?[.。…\s]*$/i.test(text))continue;
+      if(el.closest('[hidden],[aria-hidden="true"]')||!laidOut(el))continue;
+      return true;
+    }
+    return [...main.querySelectorAll('img[src]:not([src=""]),video[poster],canvas,.stage')].some(laidOut)&&!main.querySelector(loadingSelector);
+  }
+  function paintState(){
+    const key=entryKey(),path=location.pathname;
+    if(paintMemo?.key===key&&paintMemo.version===domVersion)return paintMemo.value;
+    const main=document.getElementById('main')||document.getElementById('root');let usable=meaningfulContent(main);
+    if(main&&(getComputedStyle(main).display==='none'||getComputedStyle(main).visibility==='hidden'))usable=false;
+    const loading=main?.querySelector(loadingSelector);
+    const committed=usable?committedMainPath():null;
+    if(committed!==null&&committed.replace(/\/$/,'')!==path.replace(/\/$/,''))usable=false;
+    // Plain-DOM adapters have no router context. Reusing the untouched source
+    // cannot acknowledge an incoming route merely because it contains text.
+    if(usable&&presentation&&departedMain===main&&committed===null&&departedNodes.length&&departedNodes.every(node=>node.parentElement===main)&&main.textContent===departedText)usable=false;
+    const chat=/^\/matches\/[^/]+\/?$/.test(path);
+    if(chat&&!main?.querySelector('textarea,.messages,.card.relative.min-h-0.flex-1.overflow-y-auto,[role="alert"]'))usable=false;
+    const value={key,path,ready:!!usable,loading:!!loading};
+    paintMemo={key,version:domVersion,value};return value;
+  }
+  window.__vrcrpPaintState=()=>{paintMemo=null;const state=paintState();return {...state,contentReady:state.ready,placeholder:!!placeholder,ready:state.ready&&!placeholder};};
   function saveView() {
     const main = document.getElementById('main'); if (!main) return;
     const chat = /^\/matches\/[^/]+$/.test(lastPath), editor = chat ? main.querySelector('textarea') : null;
     const state = { x:scrollX,y:scrollY,scrollers:[...main.querySelectorAll('.overflow-y-auto,.messages')].map(e=>({top:e.scrollTop,bottom:e.scrollHeight-e.scrollTop-e.clientHeight<80})),draft:editor?.value?.slice(0,8000) || '' };
-    views.delete(entryKey()); views.set(entryKey(),state); if(views.size>10)views.delete(views.keys().next().value);
-    pathViews.delete(lastPath);pathViews.set(lastPath,state);if(pathViews.size>10)pathViews.delete(pathViews.keys().next().value);
+    views.delete(entryKey()); views.set(entryKey(),state); if(views.size>24)views.delete(views.keys().next().value);
+    pathViews.delete(lastPath);pathViews.set(lastPath,state);if(pathViews.size>24)pathViews.delete(pathViews.keys().next().value);
   }
   function willNavigate(path, motion) {
     saveView();
+    departedMain=document.getElementById('main')||document.getElementById('root');departedNodes=[...(departedMain?.children||[])];departedText=departedMain?.textContent||'';
     post({kind:'willNavigate',entryKey:entryKey(),toPath:path,direction:motion});
   }
   function committedRouterPath(){
@@ -260,15 +343,18 @@
   function settle() {
     const owner = ++settleGeneration, key = entryKey(), saved = pendingRestore;
     const started = performance.now();
+    // History is acknowledged independently of network/paint. Restoration,
+    // however, waits for the actual destination instead of scrolling a loader.
+    post({kind:'routeSettled',entryKey:key,path:location.pathname});
     function attempt() {
       if(owner!==settleGeneration || key!==entryKey())return;
       const main=document.getElementById('main'), chat=/^\/matches\/[^/]+$/.test(location.pathname);
       const editor=chat?main?.querySelector('textarea'):null;
-      const loading=main?.querySelector('.animate-spin,[role="progressbar"]') && !main?.querySelector('textarea,article,.bubble-me,.bubble-them');
-      const usable=main && !loading && (chat ? editor || main.querySelector('.card button,[role="alert"]') : main.children.length);
+      const usable=paintState().ready;
       const scrolls=main?[...main.querySelectorAll('.overflow-y-auto,.messages')]:[];
       const pendingHeight=saved?.scrollers?.some((s,i)=>s.top>0 && scrolls[i] && scrolls[i].scrollHeight-scrolls[i].clientHeight<s.top-1);
-      if ((!usable || pendingHeight) && performance.now()-started<1400){setTimeout(attempt,35);return;}
+      if(!usable){setTimeout(attempt,100);return;}
+      if(pendingHeight&&performance.now()-started<1400){setTimeout(attempt,35);return;}
       if(saved && main) {
         window.scrollTo(saved.x,saved.y);
         for(let i=0;i<scrolls.length;i++)if(saved.scrollers[i]){
@@ -283,20 +369,23 @@
       pendingRestore=null;
       // A covered WebKit view may pause animation frames. Restoring an entry
       // must not depend on a paint to acknowledge that history traversal.
-      if(owner===settleGeneration&&key===entryKey())post({kind:'routeSettled',entryKey:key,path:location.pathname});
       const paint=()=>{
         if(owner!==settleGeneration||key!==entryKey())return;
-        const committed=committedMainPath(),main=document.getElementById('main');
-        const chatReady=!/^\/matches\/[^/]+\/?$/.test(location.pathname)||main?.querySelector('textarea,.card.relative.min-h-0.flex-1.overflow-y-auto,[role="alert"]');
-        if(committed!==null&&committed.replace(/\/$/,'')!==location.pathname.replace(/\/$/,'')||!chatReady){requestAnimationFrame(paint);return;}
-        requestAnimationFrame(()=>{if(owner===settleGeneration&&key===entryKey())post({kind:'pagePainted',entryKey:key,path:location.pathname});});
-      };requestAnimationFrame(paint);
+        if(!paintState().ready){setTimeout(paint,100);return;}
+        // Restore scroll and remove the waiting surface before acknowledging
+        // two painted frames. No deadline turns a slow response into readiness.
+        clearPlaceholder();
+        requestAnimationFrame(()=>requestAnimationFrame(()=>{if(owner===settleGeneration&&key===entryKey()&&paintState().ready)post({kind:'pagePainted',entryKey:key,path:location.pathname});}));
+      };paint();
     }
     attempt();
   }
   function announceRoute() {
     generation++;settleGeneration++;
-    post({ kind: 'route', path: location.pathname, entryKey:entryKey(),parentKey:index>0?String(entryKeys[index-1]):null,direction,showTabs: tabPages.has(location.pathname), canGoBack: index > 0 && !roots.has(location.pathname), refreshable: refreshable.has(location.pathname) });
+    paintMemo=null;
+    if(location.pathname!==lastPath||!ready)installPlaceholder(location.pathname);
+    const theme=getComputedStyle(document.documentElement),surface=rgba('rgb('+ (theme.getPropertyValue('--surface').trim()||'255 255 255') +')'),canvas=rgba('rgb('+ (theme.getPropertyValue('--bg').trim()||'245 245 245') +')'),ink=rgba('rgb('+ (theme.getPropertyValue('--fg').trim()||'35 35 35') +')');
+    post({ kind: 'route', path: location.pathname, entryKey:entryKey(),parentKey:index>0?String(entryKeys[index-1]):null,parentPath:index>0?entries[index-1].split('?')[0]:null,ancestors:entryKeys.slice(Math.max(0,index-24),index),direction,showTabs: tabPages.has(location.pathname),title:pageTitle(location.pathname),surfaceColor:surface,canvasColor:canvas,inkColor:ink,canGoBack: index > 0 && !roots.has(location.pathname), refreshable: refreshable.has(location.pathname) });
     if (location.pathname === '/matches') window.__vrcrpSyncChats?.();
     window.__vrcrpSiteCache?.pageChanged?.();
     direction='none';
@@ -435,7 +524,7 @@
     forwardIntent={href:a.href,node:a};backQueue=0;
   },true);
   window.__vrcrpOpenRoot = path => { const a=document.querySelector(`.app-bottom a[href="${path}"]`);if(a)a.click();else location.assign(path); };
-  window.__vrcrpClearNavigation = () => { views.clear();pathViews.clear(); pendingRestore=null; };
+  window.__vrcrpClearNavigation = () => { views.clear();pathViews.clear(); pendingRestore=null;departedMain=null;departedNodes=[];paintMemo=null;clearPlaceholder(); };
   window.__vrcrpOpenMatches = () => {
     const link = document.querySelector('.app-bottom a[href="/matches"]');
     if (link) link.click(); else location.assign('/matches');
@@ -482,6 +571,7 @@
     const oldIndex=index;
     clearTimeout(backTimer);backInFlight=false;
     saveView();
+    departedMain=document.getElementById('main')||document.getElementById('root');departedNodes=[...(departedMain?.children||[])];departedText=departedMain?.textContent||'';
     const target = Number.isInteger(history.state?.idx) ? history.state.idx - baseIndex : -1;
     index = target >= 0 && target < entries.length && entries[target] === path ? target : Math.max(0, entries.lastIndexOf(path));
     // Profile dialogs use a ?u= history entry and close with navigate(-1).
@@ -517,12 +607,13 @@
     return promise;
   };
   new MutationObserver(records => {
+    if(records.some(r=>r.target===document.getElementById('main')||r.target.parentElement?.closest('#main'))){domVersion++;paintMemo=null;}
     if (!ready || records.some(record => record.type !== 'attributes' || record.target === document.documentElement || record.target === document.body || record.target.closest?.('.app-bottom,.app-top,[role="dialog"],.dialog-panel') || record.attributeName === 'open')) schedule();
   }).observe(document, { subtree: true, childList: true, attributes: true, characterData: true, attributeFilter: ['class', 'style', 'aria-current', 'open', 'data-preset', 'data-theme', 'data-vrcrp-keyboard'] });
   window.addEventListener('resize', schedule);
   window.addEventListener('scroll', schedule, { passive: true });
   let snapshotTimer;
-  const snapshotSoon=()=>{clearTimeout(snapshotTimer);snapshotTimer=setTimeout(()=>post({kind:'viewUpdated',entryKey:entryKey()}),160);};
+  const snapshotSoon=()=>{clearTimeout(snapshotTimer);snapshotTimer=setTimeout(()=>post({kind:'viewUpdated',entryKey:entryKey()}),100);};
   window.addEventListener('scroll',snapshotSoon,{passive:true,capture:true});
   new MutationObserver(records=>{if(records.some(r=>r.target.closest?.('#main') && (r.type!=='attributes' || r.attributeName==='aria-current')))snapshotSoon();}).observe(document,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['aria-current']});
   document.addEventListener('focusin', schedule);

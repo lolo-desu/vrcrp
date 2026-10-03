@@ -1,0 +1,13 @@
+<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>
+:root{--surface:255 255 255;--bg:255 235 117;--fg:35 35 35;--primary:235 75 80}*{box-sizing:border-box}body{margin:0;font:16px system-ui;background:rgb(var(--bg))}.app-top{height:56px;background:white;padding:16px}main{min-height:850px;padding:16px}.app-bottom{display:none}button{height:44px}#continuity-color{position:fixed;inset:56px 0 0;z-index:10;pointer-events:none}.actual-content{position:relative;z-index:11;color:white}#continuity-color.blue{background:#1769aa}#continuity-color.orange{background:#e65100}#continuity-color.purple{background:#7b1fa2}
+</style></head><body><header class="app-top">显示衔接测试</header><main id="main"></main><script>
+history.replaceState({idx:0,key:'continuity-root'},'',location.href);
+window.continuityPhase='content';window.holdParent=false;
+function draw(loading=false,error=false){const main=document.getElementById('main'),path=location.pathname;window.continuityPhase=loading?'loading':error?'error':'content';
+ if(loading){main.innerHTML='<h1>等待目标页</h1><div role="status"><svg class="animate-spin"></svg><span>加载中…</span></div>';return;}
+ if(error){main.innerHTML='<h1>通知</h1><div role="alert">暂时无法连接<button>重试</button></div>';return;}
+ const color=path==='/matches'?'blue':path==='/posts'?'purple':'orange';main.innerHTML='<div id="continuity-color" class="'+color+'"></div><section class="actual-content"><h1>'+path+'</h1><p>已加载的实际内容，返回时保留此页画面。</p><a href="/u/slow" onclick="event.preventDefault();continuityOpen(\'/u/slow\',true)">打开资料</a></section>';}
+window.continuityOpen=(path,loading=false)=>{history.pushState({idx:(history.state?.idx||0)+1,key:Math.random().toString()},'',path+'?fixture=continuity');draw(loading);};
+window.continuityRelease=()=>draw();window.continuityError=()=>draw(false,true);
+addEventListener('popstate',()=>draw(holdParent));draw();
+</script></body></html>

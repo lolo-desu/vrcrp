@@ -203,6 +203,32 @@ wait "$VIDEO_PID" || true
 VIDEO_PID=""
 cp "$DATA_PATH/Documents/"handoff-*.json "$ROOT/build/"
 swift "$ROOT/scripts/check-handoff-video.swift" "$ROOT/build/handoff.mov" "$ROOT/build/handoff-video.json"
+xcrun simctl io "$SIM_ID" recordVideo --codec=h264 "$ROOT/build/continuity.mov" > "$ROOT/build/continuity-record.log" 2>&1 &
+VIDEO_PID=$!
+sleep 1
+xcrun simctl launch --terminate-running-process "$SIM_ID" local.erp.stable --verify-continuity
+wait_for_report continuity-completed.json
+kill -INT "$VIDEO_PID"
+wait "$VIDEO_PID" || true
+VIDEO_PID=""
+cp "$DATA_PATH/Documents/"continuity-*.json "$ROOT/build/"
+cp "$DATA_PATH/Documents/"continuity-*.png "$ROOT/build/"
+python3 - "$ROOT/build" <<'PYCONTINUITY'
+import json,sys
+from pathlib import Path
+phases=['root','cold-wait','profile','parent-wait','parent-ready','tab-wait','tab-ready','error','completed']
+reports={phase:json.loads((Path(sys.argv[1])/f'continuity-{phase}.json').read_text()) for phase in phases}
+for phase,report in reports.items():
+ print(phase,report)
+ assert 'error' not in report and report['loads']==1 and report['webEnabled'] and report['markedPixels']>12,report
+ if phase.endswith('wait'):assert report['handoff'] and not report['transitioning'],report
+ else:assert not report['handoff'] and not report['transitioning'],report
+parent=reports['parent-wait']
+assert max(abs(a-b) for a,b in zip(parent['centerRGB'],[23,105,170]))<12,parent
+assert reports['cold-wait']['backEnabled'],reports['cold-wait']
+print('PASS: actual UIKit cold/detail/tab placeholders persist through slow loading; return keeps the cached parent bitmap; usable errors reveal; no white waiting surface or document reload')
+PYCONTINUITY
+swift "$ROOT/scripts/check-continuity-video.swift" "$ROOT/build/continuity.mov" "$ROOT/build/continuity-video.json"
 xcrun simctl launch --terminate-running-process "$SIM_ID" local.erp.stable --verify-surfaces
 wait_for_report surfaces-completed.json
 cp "$DATA_PATH/Documents/"surfaces-*.json "$ROOT/build/"

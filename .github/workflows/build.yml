@@ -66,6 +66,10 @@ jobs:
             build/handoff-*.json
             build/handoff.mov
             build/handoff-record.log
+            build/continuity-*.json
+            build/continuity-*.png
+            build/continuity.mov
+            build/continuity-record.log
             build/motion-*.json
             build/surfaces-*.json
             build/surfaces-*.png

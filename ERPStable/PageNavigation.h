@@ -14,7 +14,9 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, copy, nullable) void (^onTransitionChange)(BOOL transitioning);
 @property(nonatomic, copy, nullable) void (^onRequestBack)(void);
 @property(nonatomic, copy, nullable) void (^onHeaderColor)(UIColor *color);
+@property(nonatomic, copy, nullable) BOOL (^captureAllowed)(void);
 - (instancetype)initWithWebView:(WKWebView *)web navigation:(UIView *)navigation header:(UIView *)header;
+- (void)configureSurface:(NSDictionary *)model;
 - (void)moveToKey:(NSString *)key parent:(nullable NSString *)parent path:(NSString *)path direction:(NSString *)direction;
 - (void)settled:(NSString *)key;
 - (void)painted:(NSString *)key;

@@ -14,6 +14,7 @@ class Handler(BaseHTTPRequestHandler):
         else:
             fixture='layout-fixture.html' if parse_qs(url.query).get('fixture')==['layout'] else 'navigation-fixture.html'
             if parse_qs(url.query).get('fixture')==['gestures']:fixture='gesture-fixture.html'
+            if parse_qs(url.query).get('fixture')==['continuity']:fixture='continuity-native-fixture.html'
             if parse_qs(url.query).get('fixture')==['surfaces'] or url.path in ['/me','/profile/edit/basics','/profile/edit/about','/profile/edit/photos']:fixture='surface-fixture.html'
             body=Path(__file__).with_name(fixture).read_bytes()
         self.send_response(200)
