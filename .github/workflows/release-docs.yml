@@ -5,15 +5,27 @@ on:
     paths:
       - 'release-notes/*.md'
       - '.github/workflows/release-docs.yml'
+      - 'release-version-map.json'
+      - 'scripts/normalize-release-versions.py'
   workflow_dispatch:
 permissions:
   contents: write
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      - name: Normalize published version numbers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/normalize-release-versions.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-version-backup
+          path: build/release-version-backup
+          retention-days: 30
       - name: Update published descriptions
         env:
           GH_TOKEN: ${{ github.token }}

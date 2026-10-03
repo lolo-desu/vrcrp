@@ -1,0 +1,46 @@
+[
+  {
+    "releaseId": 402190611,
+    "oldTag": "v3.0",
+    "newVersion": "0.1",
+    "newTag": "v0.1",
+    "oldCommit": "8a6030291cfc2d847f5159125f5453fdb59ef5e5",
+    "newCommit": "6af7583a773c172a4cd3c7336d9d1312447a2402",
+    "ipaSha256": "9420117ddf2f628478c26da423f317767fc08adc14f211a715a75271b4041878",
+    "oldAssetId": 606598723,
+    "oldIpaName": "vrcrp-v3.0-unsigned.ipa"
+  },
+  {
+    "releaseId": 402195820,
+    "oldTag": "v3.1",
+    "newVersion": "0.2",
+    "newTag": "v0.2",
+    "oldCommit": "ea6f9bb610781c827c49110460edf34b454c0418",
+    "newCommit": "286d833a07e9b20f69cbe9c85994c4a4e6f51279",
+    "ipaSha256": "086d26e808f353f5e483b2705d35975329767b095caad20e09b4014ce706009f",
+    "oldAssetId": 606613788,
+    "oldIpaName": "vrcrp-v3.1-unsigned.ipa"
+  },
+  {
+    "releaseId": 402329216,
+    "oldTag": "v3.2",
+    "newVersion": "0.3",
+    "newTag": "v0.3",
+    "oldCommit": "187784ce56ae0848251c14764f47e07f5bb3825a",
+    "newCommit": "69b44db01c640177e1daa6464f04e4f7fd18c2c2",
+    "ipaSha256": "f132805773922da85cd6be41438f0bc92dcc599634f84f4950b2c2dc48b051e4",
+    "oldAssetId": 607145637,
+    "oldIpaName": "vrcrp-v3.2-unsigned.ipa"
+  },
+  {
+    "releaseId": 402423220,
+    "oldTag": "v3.3",
+    "newVersion": "0.4",
+    "newTag": "v0.4",
+    "oldCommit": "013cfd28596eabed62dec8a260eff9f578a1ccd3",
+    "newCommit": "c1bb48ee4820397b89b08a3a426c29390184a946",
+    "ipaSha256": "ee3a92c25fed024d1ad9e6e8c31d1e474fadde7e29fb25d9ca4dd572c65b575b",
+    "oldAssetId": 607492138,
+    "oldIpaName": "vrcrp-v3.3-unsigned.ipa"
+  }
+]

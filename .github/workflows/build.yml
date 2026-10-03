@@ -5,6 +5,8 @@ on:
     paths-ignore:
       - '**/*.md'
       - '.github/workflows/release-docs.yml'
+      - 'release-version-map.json'
+      - 'scripts/normalize-release-versions.py'
   workflow_dispatch:
 permissions:
   contents: read

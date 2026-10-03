@@ -483,8 +483,12 @@
     saveView();
     const target = Number.isInteger(history.state?.idx) ? history.state.idx - baseIndex : -1;
     index = target >= 0 && target < entries.length && entries[target] === path ? target : Math.max(0, entries.lastIndexOf(path));
-    direction=index<oldIndex?'pop':index>oldIndex?'push':'none';
-    pendingRestore=views.get(entryKey()) || null;
+    // Profile dialogs use a ?u= history entry and close with navigate(-1).
+    // Traversing those entries changes presentation, not the page hierarchy.
+    // Leave the mounted list and its scroll position alone behind the dialog.
+    const samePage=location.pathname===lastPath;
+    direction=samePage?'none':index<oldIndex?'pop':index>oldIndex?'push':'none';
+    pendingRestore=samePage?null:views.get(entryKey()) || null;
     announceRoute(); routeAnnounced = true; lastPath = location.pathname;
     routePending = true; schedule();
     if(forwardIntent)replayForward();else setTimeout(drainBack,0);

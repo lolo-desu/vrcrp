@@ -154,7 +154,9 @@
         [self holdCover:self.handoffView?:self.underlay];return;
     }
     if(self.transitioning||self.handoff)[self complete];
-    if(!oldKey.length||[oldKey isEqual:key]||[direction isEqual:@"none"]||[direction isEqual:@"tab"]||UIAccessibilityIsReduceMotionEnabled())return;
+    // Query/history entries belonging to a modal are not another page. Never
+    // replay a cached list as a returning destination when the path is equal.
+    if(!oldKey.length||[oldKey isEqual:key]||[oldPath isEqual:path]||[direction isEqual:@"none"]||[direction isEqual:@"tab"]||UIAccessibilityIsReduceMotionEnabled())return;
     [self layout];NSUInteger generation=++self.generation;CGFloat width=self.web.bounds.size.width;
     self.routeReady=NO;self.animationDone=NO;[self setRunning:YES];
     if([direction isEqual:@"push"]) {

@@ -3,21 +3,28 @@
 .chat-list{margin:0;padding:0;list-style:none;background:white}.chat-list a{background:transparent}.chat-list a:hover,.chat-list a:focus{background:rgb(var(--surface2))}.dialog-host{position:fixed;inset:0;z-index:100;display:flex;align-items:flex-end;justify-content:center}.sheet-backdrop{position:absolute;inset:0;background:#0008}.dialog-panel{position:relative;display:flex;flex-direction:column;width:100%;height:min(680px,92vh);background:white;border-radius:22px 22px 0 0;overflow:hidden}.sheet-header{display:flex;align-items:center;justify-content:space-between;flex-shrink:0;padding:8px 14px;border-bottom:1px solid #aaa}.sheet-header h2{font-size:18px}.sheet-body{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:12px}.sheet-photo{width:100%;height:160px;display:block;background:#90b9ee;touch-action:none}.sheet-report{position:absolute;top:68px;right:12px;background:white;z-index:1;pointer-events:none}
 </style></head><body><header class="app-top">触摸回归测试</header><main id="main"></main><script>
 history.replaceState({idx:0,key:'gesture-root'},'',location.href);
-window.sheetCloses=0;window.sheetActions=0;
+window.sheetCloses=0;window.sheetActions=0;let renderedPath=null;
 window.openPage=path=>{history.pushState({idx:(history.state?.idx||0)+1,key:Math.random().toString()},'',path+'?fixture=gestures');render()};
-function render(){const main=document.getElementById('main');window.scrollTo(0,0);const path=location.pathname;
+function render(){const main=document.getElementById('main');const path=location.pathname;
+if(path===renderedPath){syncSheet();return;}renderedPath=path;window.scrollTo(0,0);
 if(path==='/matches')main.innerHTML='<h1>配对列表</h1><ul class="chat-list"><li><a href="/matches/thread" onclick="event.preventDefault();openPage(\'/matches/thread\')">虚构会话</a></li><li><a href="/matches/stay" onclick="event.preventDefault()">留在列表</a></li></ul>';
 else if(path==='/matches/thread')main.innerHTML='<header class="chat-header">聊天页面</header><div class="messages">虚构消息</div><a href="/u/peer" onclick="event.preventDefault();openPage(\'/u/peer\')">打开资料</a><textarea placeholder="消息"></textarea>';
 else if(path==='/likes')main.innerHTML='<h1>喜欢列表</h1><button onclick="showSheet()">打开喜欢详情</button><p id="sheet-close-count">弹层关闭 '+sheetCloses+'</p>';
 else{main.innerHTML='<div class="heading"><h1>个人资料</h1></div><p id="ready">资料正在排版</p><a href="/likes" onclick="event.preventDefault();openPage(\'/likes\')">喜欢列表</a><button class="photo" aria-label="资料照片" onclick="document.getElementById(\'photo-count\').textContent=\'照片点击 1\'"><img draggable="true" alt="普通图片" src="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%22100%22%3E%3Crect width=%22100%22 height=%22100%22 fill=%22%235c80c8%22/%3E%3C/svg%3E"></button><p id="photo-count">照片点击 0</p><div class="overflow-x-auto" onscroll="document.getElementById(\'album-status\').textContent=\'相册位置 \'+Math.round(this.scrollLeft)"><div class="slide">相册 A</div><div class="slide">相册 B</div><div class="slide">相册 C</div></div><p id="album-status">相册位置 0</p><button onclick="webkit.messageHandlers.erpNativeApp.postMessage({kind:\'verifySnapshotStall\'})">冻结截图测试</button><article class="bio"><p>可复制的个人资料文字</p>'+Array.from({length:35},(_,i)=>'<p>资料内容 '+i+'</p>').join('')+'<p>资料最后一段</p></article><span class="sticky-report" id="scroll-status">页面滚动 0</span>';
 setTimeout(()=>{if(location.pathname==='/u/peer')document.getElementById('ready').textContent='资料已就绪'},2100)}
-}
+syncSheet();}
 window.showSheet=()=>{
+if(!new URLSearchParams(location.search).has('u')){const url=new URL(location.href);url.searchParams.set('u','fixture-peer');history.pushState({usr:{profileModal:true},idx:(history.state?.idx||0)+1,key:Math.random().toString()},'',url);}
+syncSheet();};
+function syncSheet(){
+const previous=document.querySelector('.dialog-host');
+if(location.pathname!=='/likes'||!new URLSearchParams(location.search).has('u')){if(previous){previous.remove();sheetCloses++;document.getElementById('sheet-close-count').textContent='弹层关闭 '+sheetCloses;document.querySelector('#main button')?.focus();}return;}
+if(previous)return;
 const host=document.createElement('div');host.className='dialog-host';host.setAttribute('data-dialog','true');
 host.innerHTML=`<div class="sheet-backdrop" aria-hidden="true"></div><section class="dialog-panel" role="dialog" aria-modal="true" tabindex="-1"><div class="sheet-header"><h2>喜欢详情标题</h2><button aria-label="关闭">×</button></div><div class="sheet-body" data-dialog-body><button class="sheet-photo" aria-label="喜欢资料照片" onclick="sheetActions++">普通资料图片</button><div class="overflow-x-auto"><div class="slide">弹层相册 A</div><div class="slide">弹层相册 B</div></div>${Array.from({length:35},(_,i)=>'<p>弹层资料内容 '+i+'</p>').join('')}<textarea placeholder="弹层输入"></textarea></div><span class="sheet-report">弹层滚动 0</span></section>`;
-const close=()=>{host.remove();sheetCloses++;document.getElementById('sheet-close-count').textContent='弹层关闭 '+sheetCloses};
+const close=()=>history.back();
 host.querySelector('.sheet-header button').onclick=close;host.querySelector('.sheet-backdrop').onclick=close;
 host.querySelector('.sheet-body').onscroll=()=>{host.querySelector('.sheet-report').textContent='弹层滚动 '+Math.round(host.querySelector('.sheet-body').scrollTop)};
-document.body.appendChild(host);};
+document.body.appendChild(host);}
 window.addEventListener('popstate',render);window.addEventListener('scroll',()=>{const el=document.getElementById('scroll-status');if(el)el.textContent='页面滚动 '+Math.round(window.scrollY)},{passive:true});render();
 </script></body></html>

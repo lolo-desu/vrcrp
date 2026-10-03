@@ -31,6 +31,8 @@ with sync_playwright() as p:
   page.evaluate('__vrcrpBack()');page.wait_for_function("location.pathname==='/matches'")
   assert page.locator('[data-vrcrp-row-pressed]').count()==0
   page.evaluate("openPage('/likes')");page.wait_for_timeout(150)
+  list_node=page.locator('#main > button').element_handle()
+  list_bounds=list_node.bounding_box()
   def open_sheet():
    page.get_by_role('button',name='打开喜欢详情').click();page.wait_for_selector('[data-vrcrp-dismissible-sheet]');page.wait_for_function("nativeMessages.filter(m=>m.kind==='navigation').at(-1)?.overlay===true");page.wait_for_timeout(120)
   def photo_origin():
@@ -86,7 +88,17 @@ with sync_playwright() as p:
    assert page.get_by_role('dialog').count()==0
    open_sheet();x,y=photo_origin();touch_drag(x,y,0,290);assert page.get_by_role('dialog').count()==0
   assert not errors,errors
-  results.append({'realBrowserTouch':engine=='chromium','engine':engine,'rowIdleHoverFocus':'no highlight','rowImmediatePressAndScrollCancel':'pass','rowNoCachedSelection':'pass','sheetRightDownAndCancellation':'pass','bodyScrollHeaderClose':'pass','horizontalAlbumAndEditor':'preserved','replacedSheet':'pass'})
+  assert page.evaluate("nativeMessages.filter(m=>m.kind==='route'&&m.path==='/likes').slice(1).every(m=>m.direction==='none')"),'Modal history was animated as a page return'
+  assert list_node.evaluate('e=>e.isConnected'),'Closing a profile dialog remounted the list'
+  assert list_node.bounding_box()==list_bounds,'Closing the dialog displaced the mounted list'
+  # A real path change must still carry normal hierarchy animations.
+  page.evaluate("document.querySelector('.sheet-header button')?.click()")
+  page.wait_for_timeout(100)
+  page.evaluate("openPage('/u/peer')");page.wait_for_timeout(100)
+  assert page.evaluate("nativeMessages.filter(m=>m.kind==='route').at(-1).direction")=='push'
+  page.evaluate('__vrcrpBack()');page.wait_for_timeout(150)
+  assert page.evaluate("nativeMessages.filter(m=>m.kind==='route').at(-1).direction")=='pop'
+  results.append({'realBrowserTouch':engine=='chromium','engine':engine,'rowIdleHoverFocus':'no highlight','rowImmediatePressAndScrollCancel':'pass','rowNoCachedSelection':'pass','sheetRightDownAndCancellation':'pass','bodyScrollHeaderClose':'pass','horizontalAlbumAndEditor':'preserved','replacedSheet':'pass','queryModalHistory':'same mounted list, same bounds, no page return animation','realPathHistory':'push/pop preserved'})
   browser.close()
  (root/'build/list-sheet-verification.json').write_text(json.dumps(results,ensure_ascii=False,indent=2))
 print('PASS: Chromium + WebKit row press/idle/hover/scroll/cancel/back, right/down modal dismiss, reversal/system cancellation, body scroll, album/editor and replaced-sheet safety')
