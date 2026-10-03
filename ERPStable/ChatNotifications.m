@@ -165,17 +165,6 @@ static NSString *VRFingerprint(NSDictionary *last) {
         });
     }];
 }
-- (void)sendTestNotification {
-    [UNUserNotificationCenter.currentNotificationCenter requestAuthorizationWithOptions:UNAuthorizationOptionAlert|UNAuthorizationOptionSound|UNAuthorizationOptionBadge completionHandler:^(BOOL granted,NSError *error){
-        if(!granted)return;
-        dispatch_async(dispatch_get_main_queue(),^{
-            NSDictionary *event=@{@"title":@"通知测试",@"displayId":@"vrcrp-test",@"senderId":@"vrcrp-test",@"body":@"这里是消息正文，头像和 ID 应与此条通知一起显示。"};
-            UNMutableNotificationContent *content=[self messageContent:event path:@"/matches" thread:@"vrcrp-test" avatar:nil];
-            INInteraction *interaction=[[INInteraction alloc] initWithIntent:[self communicationIntent:event path:@"/matches" avatar:nil] response:nil];interaction.direction=INInteractionDirectionIncoming;[interaction donateInteractionWithCompletion:^(NSError *error){}];
-            [UNUserNotificationCenter.currentNotificationCenter addNotificationRequest:[UNNotificationRequest requestWithIdentifier:@"vrcrp-preview-test" content:content trigger:[UNTimeIntervalNotificationTrigger triggerWithTimeInterval:1 repeats:NO]] withCompletionHandler:nil];
-        });
-    }];
-}
 - (void)notifyTitle:(NSString *)title body:(NSString *)body path:(NSString *)path identifier:(NSString *)identifier thread:(NSString *)thread {
     NSUInteger generation=self.generation;
     [UNUserNotificationCenter.currentNotificationCenter getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings *settings){

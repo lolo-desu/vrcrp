@@ -5,7 +5,6 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, readonly) BOOL authenticated;
 - (instancetype)initWithCookieStore:(WKHTTPCookieStore *)store;
 - (void)handleEvent:(NSDictionary *)event;
-- (void)sendTestNotification;
 - (void)beginBackgroundSync;
 - (void)endBackgroundSync;
 #if ERP_TESTING

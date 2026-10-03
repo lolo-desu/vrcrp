@@ -406,7 +406,7 @@
     const walker=document.createTreeWalker(main,NodeFilter.SHOW_TEXT);
     for(let n=0,node;(node=walker.nextNode())&&n<180;n++){
       const text=node.textContent.trim(),el=node.parentElement;
-      if(!text||!el||el.closest(loadingSelector+' ,h1,h2,[data-vrcrp-page-back],[data-vrcrp-chat-back],[data-vrcrp-back-strip],.chat-header,[data-vrcrp-chat-bar],.app-top,.app-bottom,#vrcrp-system-notifications,#vrcrp-own-rank,script,style'))continue;
+      if(!text||!el||el.closest(loadingSelector+' ,h1,h2,[data-vrcrp-page-back],[data-vrcrp-chat-back],[data-vrcrp-back-strip],.chat-header,[data-vrcrp-chat-bar],.app-top,.app-bottom,#vrcrp-system-notifications,script,style'))continue;
       if(el.closest('button')&&!el.closest('li,article,.card,[role="listitem"]')&&main.querySelector(loadingSelector))continue;
       if(/^(?:正在)?(?:加载|载入|连接|缓冲|loading|connecting)(?:中|消息|资料|内容|页面)?[.。…\s]*$/i.test(text))continue;
       if(el.closest('[hidden],[aria-hidden="true"]')||!laidOut(el))continue;
@@ -544,24 +544,6 @@
       if (!routeAnnounced) announceRoute();
       routeAnnounced = false; currentGeneration=generation; lastPath = location.pathname;
     }
-    if(location.pathname!=='/browse')document.getElementById('vrcrp-own-rank')?.remove();
-    if(location.pathname==='/browse'&&!document.getElementById('vrcrp-own-rank')){
-      const heading=document.querySelector('#main h1');
-      if(heading){
-        const button=document.createElement('button');button.id='vrcrp-own-rank';button.type='button';button.textContent='···';
-        button.className='shrink-0 rounded-ctl px-2 text-muted';button.setAttribute('aria-label','查询我的榜单位置');button.title='查询我的榜单位置';
-        button.style.cssText='min-width:36px;min-height:36px;font-size:20px;letter-spacing:2px';
-        button.addEventListener('click',async()=>{
-          if(button.disabled)return;button.disabled=true;button.textContent='…';
-          try{
-            const value=await window.__vrcrpSiteCache.ownBrowsePosition();if(!button.isConnected||location.pathname!=='/browse')return;
-            const text=value.position?`你出现在当前榜单返回列表的第 ${value.position} 位。\n\n沿用当前筛选和热度排序；网站可能隐藏部分用户，这不是补算的全站名次。`:`已检查当前榜单${value.complete?'全部返回内容':'前 '+value.checked+' 项'}，网站没有返回你的资料。\n\n网站可能隐藏自己，因此无法判断你是否上榜或计算真实名次。`;
-            post({kind:'rankResult',body:text});
-          }catch(error){if(button.isConnected&&location.pathname==='/browse')post({kind:'rankResult',body:error.name==='AbortError'?'查询已结束，请稍后重试。':error.message});}
-          finally{button.disabled=false;button.textContent='···';}
-        });heading.after(button);
-      }
-    }
     if(location.pathname!=='/settings/notifications')document.getElementById('vrcrp-system-notifications')?.remove();
     if (location.pathname === '/settings/notifications' && !document.getElementById('vrcrp-system-notifications')) {
       const main = document.getElementById('main');
@@ -572,8 +554,7 @@
         button.className = 'mt-3 rounded-ctl border border-border bg-surface2 px-4 py-3 text-fg';
         button.addEventListener('click', () => post({ kind: 'notificationSettings' }));
         const description = document.createElement('p'); description.textContent = '管理横幅、锁屏提醒、声音和消息预览'; description.className = 'mt-2 text-sm text-muted';
-        const test=document.createElement('button');test.type='button';test.textContent='测试通知';test.className=button.className+' ml-2';test.addEventListener('click',()=>post({kind:'testNotification'}));
-        card.append(caption,button,test,description); main.appendChild(card);
+        card.append(caption,button,description); main.appendChild(card);
       }
     }
     const nav = document.querySelector('.app-bottom');

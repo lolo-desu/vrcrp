@@ -39,9 +39,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.10</string>
+	<string>0.11</string>
 	<key>CFBundleVersion</key>
-	<string>23</string>
+	<string>24</string>
 	<key>NSUserActivityTypes</key>
 	<array><string>INSendMessageIntent</string></array>
 	<key>LSRequiresIPhoneOS</key>

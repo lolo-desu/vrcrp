@@ -74,15 +74,15 @@ with sync_playwright() as p:
   page.evaluate("continuityOpen('/login')");page.wait_for_function('__vrcrpPaintState().ready')
   assert page.locator('input[placeholder="邮箱"]').is_visible(),'Login outside #main stayed covered'
   assert page.evaluate('continuityBoots')==1 and page.evaluate("performance.getEntriesByType('navigation').length")==1
-  page.evaluate("continuityOpen('/settings/notifications')");page.get_by_role('button',name='测试通知',exact=True).click()
-  assert page.evaluate("nativeMessages.some(m=>m.kind==='testNotification')"),'Notification test control did not reach native bridge'
-  page.evaluate("continuityOpen('/browse')");page.wait_for_selector('#vrcrp-own-rank')
-  page.evaluate("__vrcrpSiteCache.ownBrowsePosition=async()=>({position:null,checked:24,complete:false})")
-  page.get_by_role('button',name='查询我的榜单位置').click()
-  page.wait_for_function("nativeMessages.some(m=>m.kind==='rankResult')")
-  assert '无法判断' in page.evaluate("nativeMessages.filter(m=>m.kind==='rankResult').at(-1).body")
+  page.evaluate("continuityOpen('/settings/notifications')");page.wait_for_selector('#vrcrp-system-notifications')
+  assert page.get_by_role('button',name='测试通知',exact=True).count()==0
+  assert page.locator('#vrcrp-system-notifications button').count()==1
+  page.get_by_role('button',name='系统通知设置',exact=True).click()
+  assert page.evaluate("nativeMessages.some(m=>m.kind==='notificationSettings')"),'System notification settings stopped working'
+  page.evaluate("continuityOpen('/browse')");page.wait_for_function('__vrcrpPaintState().ready')
+  assert page.locator('#vrcrp-own-rank').count()==0
+  assert page.get_by_role('button',name='查询我的榜单位置').count()==0
   page.evaluate("continuityOpen('/matches')");page.wait_for_function('__vrcrpPaintState().ready')
-  assert page.locator('#vrcrp-own-rank').count()==0,'Own-position control leaked outside the ranking page'
   assert not errors,errors
   reports.append({'engine':engine,'suspendedRoute':'outgoing content rejected','slowData':'placeholder persists beyond two seconds','parentMiss':'paint delayed until parent content exists','warmBack':'scroll restored before reveal','modalWaiting':'localized skeleton, original close and operation feedback preserved','reusedContainers':'owned back and settings controls removed on departure','editorAndLogin':'usable forms reveal','documentLoads':1})
   browser.close()
