@@ -83,28 +83,29 @@
     setProperty('--vrcrp-swipe-width', `${Math.round(width * 100) / 100}px`);
     group.dataset.vrcrpSwipeGroup = 'true';
   }
+  function renderedSurface(element) {
+    const height = parseFloat(document.documentElement.style.getPropertyValue('--vrcrp-viewport-height')) || innerHeight;
+    const bounds = element.getBoundingClientRect();
+    if (bounds.width <= 0 || bounds.height <= 0 || bounds.bottom <= 0 || bounds.top >= height) return false;
+    for (let node = element; node instanceof Element; node = node.parentElement) {
+      const style = getComputedStyle(node);
+      if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return false;
+    }
+    return true;
+  }
   function navigationBlocked(nav, rect) {
     const height = parseFloat(document.documentElement.style.getPropertyValue('--vrcrp-viewport-height')) || innerHeight;
-    const rendered = element => {
-      const bounds = element.getBoundingClientRect();
-      if (bounds.width <= 0 || bounds.height <= 0 || bounds.bottom <= 0 || bounds.top >= height) return false;
-      for (let node = element; node instanceof Element; node = node.parentElement) {
-        const style = getComputedStyle(node);
-        if (style.display === 'none' || style.visibility === 'hidden' || Number(style.opacity) === 0) return false;
-      }
-      return true;
-    };
     // WebKit can keep the CSS viewport at its pre-keyboard height briefly.
     // A hidden source nav can therefore be outside hit testing even though the
     // native nav is correctly placed. Only an actual overlay should hide it.
-    if ([...document.querySelectorAll('[data-dialog],[role="dialog"],dialog[open]')].some(rendered)) return true;
+    if ([...document.querySelectorAll('[data-dialog],[role="dialog"],dialog[open]')].some(renderedSurface)) return true;
     const y = Math.min(rect.y + Math.min(15, rect.height / 2), height - 15);
     const hit = document.elementFromPoint(rect.x + rect.width / 2, Math.max(0, y));
     if (!hit || nav.contains(hit)) return false;
     const navLayer = parseInt(getComputedStyle(nav).zIndex) || 0;
     for (let node = hit; node && node !== document.body; node = node.parentElement) {
       const style = getComputedStyle(node);
-      if (style.position === 'fixed' && (parseInt(style.zIndex) || 0) > navLayer && rendered(node)) return true;
+      if (style.position === 'fixed' && (parseInt(style.zIndex) || 0) > navLayer && renderedSurface(node)) return true;
     }
     return false;
   }
@@ -340,7 +341,7 @@
     setProperty('--vrcrp-nav-space', `${showTabs ? navHeight : 0}px`);
     fitSwipeControls(showTabs ? navHeight : 0);
     updateTopSurface(); updateGestureZones();
-    let model = { kind: 'navigation', entryKey:modelKey, visible: false, overlay: false };
+    let model = { kind: 'navigation', entryKey:modelKey, visible: false, overlay: [...document.querySelectorAll('[data-dialog],[role="dialog"],dialog[open]')].some(renderedSurface) };
     if (nav && anchors.length === 5 && getComputedStyle(nav).display !== 'none' && nav.getBoundingClientRect().width > 0) {
       const rect = nav.getBoundingClientRect();
       // Native views must not cover a site's modal, menu backdrop or lightbox.

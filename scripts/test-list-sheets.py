@@ -32,7 +32,7 @@ with sync_playwright() as p:
   assert page.locator('[data-vrcrp-row-pressed]').count()==0
   page.evaluate("openPage('/likes')");page.wait_for_timeout(150)
   def open_sheet():
-   page.get_by_role('button',name='打开喜欢详情').click();page.wait_for_selector('[data-vrcrp-dismissible-sheet]');page.wait_for_timeout(120)
+   page.get_by_role('button',name='打开喜欢详情').click();page.wait_for_selector('[data-vrcrp-dismissible-sheet]');page.wait_for_function("nativeMessages.filter(m=>m.kind==='navigation').at(-1)?.overlay===true");page.wait_for_timeout(120)
   def photo_origin():
    b=page.get_by_role('button',name='喜欢资料照片').bounding_box();return b['x']+b['width']*.25,b['y']+b['height']*.45
   def drag(dx,dy,reverse=False):
