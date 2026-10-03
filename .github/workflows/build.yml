@@ -18,6 +18,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Check notification previews and live refresh
         run: node scripts/test-notifications.cjs
+      - name: Check data coherence and cache races with real TanStack Query
+        run: |
+          npm install --prefix build/verification-deps --no-package-lock --no-save @tanstack/query-core@5.104.1
+          TEST_NODE_MODULES="$PWD/build/verification-deps/node_modules" node scripts/test-live-cache.cjs
       - name: Build arm64 device application
         run: bash scripts/build-unsigned.sh
       - name: Verify unsigned device binary
@@ -46,6 +50,7 @@ jobs:
             build/ERPStable-unsigned.ipa
             build/SHA256.txt
             build/notification-content.json
+            build/live-cache-verification.json
             build/layout-first.json
             build/layout-reopened.json
             build/web-keyboard.png

@@ -5,13 +5,124 @@
   let user = '', epoch = 0, queryClient = null, bus = null, importing = false, active = true;
   let headers = { Accept: 'application/json', 'X-Content-Mode': 'sfw' };
   let warmVisit = '', warmCount = 0;
+  const revisions=new Map(), pendingRefresh=new Map();
+  let unsubscribe=null, refreshTimer=0, pollTimer=0, pauseUntil=0;
   const pendingEvents=[];
   const idOK = value => typeof value === 'string' && /^[\w-]{1,120}$/.test(value);
   const unwrap = value => value?.data ?? value;
+  const family=q=>q.queryKey?.[0]==='m'?q.queryKey[3]:({ownProfile:'profile',myTonight:'profile',worldRef:'world'}[q.queryKey?.[0]]||q.queryKey?.[0]);
+  const scoped=q=>q.queryKey?.[0]!=='m'||q.queryKey[1]===headers['X-Content-Mode']&&(!headers['Accept-Language']||q.queryKey[2]===headers['Accept-Language']);
+  const observed=q=>typeof q.isActive==='function'?q.isActive():q.getObserversCount()>0;
+  const pageFamilies=new Set(['likes','visitors','notifications','posts','profile','guestbook','guestbookDanmaku','browse','world','worldUsers','sameModel']);
+  const livePage=q=>pageFamilies.has(family(q))&&!['ownProfile','myTonight','worldRef'].includes(q.queryKey?.[0]);
+  function resource(url){
+    const p=url.pathname.slice('/api/v1/'.length).split('/');
+    if(p[0]==='profiles')return p[2]==='guestbook'?'guestbook':'profile';
+    if(p[0]==='worlds')return p[2]==='users'?'worldUsers':'world';
+    if(p[0]==='users'&&p[2]==='posts')return 'posts';
+    if(p[0]==='guestbook')return p[1]==='danmaku'?'guestbookDanmaku':'guestbook';
+    return p[0];
+  }
+  const revision=d=>revisions.get(d.resource)||0;
+  function stopSync(){clearTimeout(refreshTimer);clearTimeout(pollTimer);refreshTimer=pollTimer=0;unsubscribe?.();unsubscribe=null;pendingRefresh.clear();revisions.clear();pendingEvents.length=0;pauseUntil=0;}
+  const foreground=()=>active&&!document.hidden&&navigator.onLine!==false&&!!user;
+  function queueRefresh(groups,at=Date.now(),passive=false){
+    for(const group of groups){const before=pendingRefresh.get(group);pendingRefresh.set(group,{at:Math.max(at,before?.at||0),passive:before?before.passive&&passive:passive});}
+    clearTimeout(refreshTimer);if(foreground())refreshTimer=setTimeout(flushRefresh,120);
+  }
+  function flushRefresh(){
+    refreshTimer=0;if(!foreground())return;
+    const c=client();if(!c)return;
+    const pending=new Map(pendingRefresh);pendingRefresh.clear();
+    // Site mutation handlers may already have fetched this exact query.
+    // Keep their request, and refresh only observers that still need new data.
+    c.refetchQueries({type:'active',predicate:q=>{
+      const intent=pending.get(family(q));
+      if(!scoped(q)||!intent||q.state.fetchStatus==='fetching')return false;
+      if(intent.passive&&(!livePage(q)||q.state.status==='error'&&Date.now()-(q.state.errorUpdatedAt||0)<30000))return false;
+      return q.state.isInvalidated||q.state.dataUpdatedAt<intent.at;
+    }},{cancelRefetch:false}).catch(()=>{});
+  }
+  function changed(groups){
+    const affected=new Set(groups);for(const group of affected)revisions.set(group,(revisions.get(group)||0)+1);
+    for(const [key,b] of bodies)if(affected.has(b.d.resource))bodies.delete(key);
+    // An older request can finish, but cannot populate the cache after a write.
+    // A fresh refetch must not be coalesced with that older request either.
+    for(const [key,f] of flights)if(affected.has(f.resource))flights.delete(key);
+    const c=client();if(c){
+      const predicate=q=>scoped(q)&&affected.has(family(q));
+      c.cancelQueries({predicate},{silent:true}).catch(()=>{});
+      c.invalidateQueries({predicate,refetchType:'none'}).catch(()=>{});
+    }
+    queueRefresh(affected);
+  }
+  function armPoll(){
+    if(pollTimer||!foreground())return;
+    const c=client();if(pollTimer||!c||!c.getQueryCache().getAll().some(q=>scoped(q)&&observed(q)&&livePage(q)))return;
+    pollTimer=setTimeout(()=>{
+      pollTimer=0;if(!foreground())return;
+      const c=client();if(!c)return;
+      if(Date.now()>=pauseUntil){
+        const groups=new Set(c.getQueryCache().getAll().filter(q=>scoped(q)&&observed(q)&&livePage(q)&&q.state.fetchStatus!=='fetching'&&Date.now()-Math.max(q.state.dataUpdatedAt,q.state.errorUpdatedAt||0)>(q.state.status==='error'?30000:4000)).map(family));
+        if(groups.size)queueRefresh(groups,Date.now()-4000,true);
+      }
+      armPoll();
+    },bus?.status==='open'?20000:5000);
+  }
+  function watch(c){
+    if(unsubscribe)return;
+    unsubscribe=c.getQueryCache().subscribe(event=>{
+      if(event.type==='observerAdded'&&scoped(event.query)&&livePage(event.query)&&event.query.state.data!==undefined)queueRefresh([family(event.query)],Date.now()-1500,true);
+      if(event.type==='observerAdded'||event.type==='observerRemoved')armPoll();
+    });armPoll();
+  }
+  function backoff(response){
+    if(response.status===429||response.status>=500)pauseUntil=Math.max(pauseUntil,Date.now()+Math.min(120000,Math.max(30000,(Number(response.headers.get('Retry-After'))||0)*1000)));
+  }
+  function patchItems(c,predicate,update){
+    for(const q of c.getQueryCache().getAll())if(scoped(q)&&predicate(q))c.setQueryData(q.queryKey,old=>{
+      if(!old)return old;
+      if(Array.isArray(old.pages))return {...old,pages:old.pages.map(page=>Array.isArray(page.items)?{...page,items:update(page.items)}:page)};
+      return Array.isArray(old.items)?{...old,items:update(old.items)}:old;
+    });
+  }
+  function mutationPlan(url,method){
+    if(!['POST','PATCH','PUT','DELETE'].includes(method)||url.origin!==location.origin)return null;
+    const p=url.pathname.slice('/api/v1/'.length).split('/');let groups;
+    // Chat read/send already have an immediate, message-specific sync path.
+    if(p[0]==='matches'&&['read','messages'].includes(p[2])||p[0]==='messages'&&p[2]==='translate')return null;
+    if(p[0]==='swipes'||p[0]==='likes')groups=['likes','profile','browse','matches','counters','energy','passes'];
+    else if(p[0]==='posts'||p[0]==='guestbook'||p[0]==='profiles'&&p[2]==='guestbook')groups=['posts','profile','guestbook','guestbookDanmaku','notifications','counters'];
+    else if(p[0]==='profiles'||p[0]==='me'&&['profile','reactions','avatar','avoid','passes','vrc','settings','tag-attitudes','tonight'].includes(p[1])||p[0]==='users'&&p[2]==='block')groups=['me','profile','tagAttitudes','browse','likes','visitors','worldUsers','sameModel','blocks','avoid','counters',...(p[2]==='block'?['matches']:[])];
+    else if(p[0]==='notifications')groups=['notifications','counters'];
+    else if(p[0]==='matches'||p[0]==='messages')groups=['matches','counters'];
+    else if(p[0]==='visitors')groups=['visitors','counters'];
+    else if(p[0]==='worlds')groups=['world','worldUsers','profile'];
+    return groups?{groups,path:p,method}:null;
+  }
+  function mutationSucceeded(plan,body){
+    changed(plan.groups);const c=client();if(!c)return;
+    const p=plan.path,target=body?.targetId;
+    // Patch only consequences confirmed by the successful server operation.
+    // Keep loaded pages/pageParams, then reconcile their cursor boundaries.
+    if(p[0]==='swipes'&&p.length===1&&idOK(target)&&['like','pass','superlike'].includes(body?.action)){
+      patchItems(c,q=>family(q)==='likes'&&q.queryKey[4]==='received',items=>items.filter(item=>item.user?.id!==target));
+      for(const q of c.getQueryCache().getAll())if(scoped(q)&&family(q)==='profile'&&q.queryKey[4]===target)c.setQueryData(q.queryKey,old=>old?.relation?{...old,relation:{...old.relation,swiped:body.action}}:old);
+    }
+    if(p[0]==='likes'&&p[1]==='sent'&&idOK(p[2])&&plan.method==='DELETE')patchItems(c,q=>family(q)==='likes'&&q.queryKey[4]==='sent',items=>items.filter(item=>item.user?.id!==p[2]));
+    if(p[0]==='posts'&&idOK(p[1])&&p.length===2&&plan.method==='DELETE')patchItems(c,q=>family(q)==='posts',items=>items.filter(item=>item.id!==p[1]));
+    if(p[0]==='notifications'&&p[1]==='read'){
+      const ids=new Set(Array.isArray(body?.ids)?body.ids.filter(idOK):[]);
+      patchItems(c,q=>family(q)==='notifications',items=>items.map(item=>body?.all===true||ids.has(item.id)?{...item,read:true}:item));
+    }
+    // setQueryData must not make inactive/other variants look authoritative.
+    c.invalidateQueries({predicate:q=>scoped(q)&&plan.groups.includes(family(q)),refetchType:'none'}).catch(()=>{});
+    if(plan.groups.includes('matches'))window.__vrcrpSyncChats?.();
+  }
   function configure(next) {
     const mode = next['X-Content-Mode'] || headers['X-Content-Mode'];
     const language = next['Accept-Language'] || headers['Accept-Language'] || '';
-    if (mode !== headers['X-Content-Mode'] || language !== (headers['Accept-Language'] || '')) { epoch++;for(const c of ownedControllers)c.abort(); bodies.clear(); flights.clear(); warmVisit = ''; warmCount = 0; }
+    if (mode !== headers['X-Content-Mode'] || language !== (headers['Accept-Language'] || '')) { epoch++;stopSync();for(const c of ownedControllers)c.abort(); bodies.clear(); flights.clear(); warmVisit = ''; warmCount = 0; }
     headers = { ...headers, ...next };
   }
   const isClient = value => value && typeof value.getQueryCache === 'function' && typeof value.setQueryData === 'function' && typeof value.invalidateQueries === 'function';
@@ -32,6 +143,7 @@
       }
     }
     if (!queryClient || !user || String(queryClient.getQueryData(['me'])?.id || '') !== user) return null;
+    watch(queryClient);
     return queryClient;
   }
   function scopes(c) {
@@ -41,7 +153,9 @@
   }
   function commitCounters(value) {
     const c = client(); if (!c || !value || !Number.isSafeInteger(value.unreadMessages)) return false;
-    c.setQueryData(['counters'], value); return true;
+    const previous=c.getQueryData(['counters']);c.setQueryData(['counters'], value);
+    if(previous){const groups=[];if(value.newLikes!==previous.newLikes)groups.push('likes');if(value.newVisitors!==previous.newVisitors)groups.push('visitors');if(value.unreadNotifications!==previous.unreadNotifications)groups.push('notifications');if(groups.length)changed(groups);}
+    return true;
   }
   function commitMatches(value, state = 'active') {
     const c = client(); if (!c || !Array.isArray(value?.items)) return false;
@@ -78,12 +192,13 @@
     if (bus || importing || !queryClient) return;
     const script = [...document.querySelectorAll('script[type="module"][src]')].find(s => new URL(s.src, location.href).origin === location.origin && /\/assets\/index-[^/]+\.js$/.test(new URL(s.src, location.href).pathname));
     if (!script) return;
-    importing = true;
+    importing = true;const owner=epoch;
     // This is the already executed module URL, so import reuses its instance.
     import(script.src).then(module => {
+      if(owner!==epoch)return;
       bus = Object.values(module).find(v => v && typeof v.on === 'function' && typeof v.emit === 'function' && typeof v.resume === 'function' && ['open','closed','connecting'].includes(v.status)) || null;
       if(bus){for(const event of pendingEvents.splice(0))if(event.owner===epoch)bus.emit(event.type,event.value);}
-    }).catch(() => {}).finally(() => { importing = false; });
+    }).catch(() => {}).finally(() => { if(owner===epoch)importing = false; });
   }
   function emit(type, value) {
     client(); findBus();
@@ -98,10 +213,10 @@
     if (!m) {
       if (!/^\/api\/v1\/(notifications|posts|worlds|users|profiles|likes|visitors)(?:\/|$)/.test(url.pathname)) return null;
       if (/\/(auth|token|export|download|check|verify)(?:\/|$)/.test(url.pathname)) return null;
-      return { page:true, url, key:JSON.stringify([user,headers['X-Content-Mode'],headers['Accept-Language'] || '',url.pathname+url.search]) };
+      return { page:true, resource:resource(url),url, key:JSON.stringify([user,headers['X-Content-Mode'],headers['Accept-Language'] || '',url.pathname+url.search]) };
     }
     if (m[2] && (url.searchParams.has('before') || url.searchParams.has('after') || url.searchParams.get('limit') && url.searchParams.get('limit') !== '50')) return null;
-    return { id: m[1], messages: !!m[2], url, key: JSON.stringify([user,headers['X-Content-Mode'],headers['Accept-Language'] || '',url.pathname + url.search]) };
+    return { id: m[1], resource:'matches',messages: !!m[2], url, key: JSON.stringify([user,headers['X-Content-Mode'],headers['Accept-Language'] || '',url.pathname + url.search]) };
   }
   function save(d, response, raw, prior) {
     if (!response.ok || response.status !== 200) return;
@@ -135,15 +250,17 @@
     }
   }
   function request(d, args, receiver = window) {
-    if (flights.has(d.key)) return flights.get(d.key).then(r => r.clone());
-    const owner = epoch, prior = bodies.get(d.key);
+    const flight=flights.get(d.key);
+    if(flight&&flight.revision===revision(d))return flight.response.then(r=>r.clone());
+    const owner = epoch, stamp=revision(d),prior = bodies.get(d.key);
     const result = Reflect.apply(network, receiver, args);
-    const owned = result.then(r => r.clone()); flights.set(d.key, owned);
+    const owned = result.then(r => r.clone()),record={response:owned,resource:d.resource,revision:stamp};flights.set(d.key,record);
     owned.then(response => {
       if (response.status === 401 && owner === epoch) reset('');
+      if(owner===epoch)backoff(response);
       if (!response.ok) return;
-      return response.clone().json().then(raw => { if (owner === epoch) save(d, response, raw, prior); });
-    }).catch(() => {}).finally(() => { if (flights.get(d.key) === owned) flights.delete(d.key); });
+      return response.clone().json().then(raw => { if (owner === epoch&&stamp===revision(d)) save(d, response, raw, prior); });
+    }).catch(error => {if(owner===epoch&&error?.name!=='AbortError')pauseUntil=Date.now()+30000;}).finally(() => { if (flights.get(d.key) === record) flights.delete(d.key); });
     return result;
   }
   function get(url) {
@@ -153,7 +270,7 @@
     return request(d,[resolved.href,{credentials:'include',headers,cache:'no-store',signal:control.signal}]).finally(()=>{clearTimeout(timeout);ownedControllers.delete(control);});
   }
   window.fetch = function (...args) {
-    let d, mutation, signal, method = 'GET';
+    let d, mutation, signal, plan,bodyPromise,method = 'GET';
     try {
       const request = args[0] instanceof Request ? args[0] : null;
       signal=args[1]?.signal || request?.signal;
@@ -165,9 +282,10 @@
         if (['sfw','mixed','r18'].includes(h.get('X-Content-Mode'))) next['X-Content-Mode'] = h.get('X-Content-Mode');
         if (h.get('Accept-Language')) next['Accept-Language'] = h.get('Accept-Language');
         configure(next);
-        if(method!=='GET'&&/^\/api\/v1\/(notifications|posts|worlds|users|profiles|likes|visitors)(?:\/|$)/.test(url.pathname)) {
-          const category=url.pathname.split('/')[3];
-          for(const [key,b] of bodies)if(b.d.page&&b.d.url.pathname.split('/')[3]===category)bodies.delete(key);
+        plan=mutationPlan(url,method);
+        if(plan){
+          const body=args[1]?.body;
+          try{bodyPromise=typeof body==='string'&&body.length<65536?Promise.resolve(JSON.parse(body)):body===undefined&&request?.body?request.clone().json().catch(()=>null):Promise.resolve(null);}catch{bodyPromise=Promise.resolve(null);}
         }
         if (method !== 'GET' && /^\/api\/v1\/(matches|messages|auth)\//.test(url.pathname)) {
           const match = url.pathname.match(/^\/api\/v1\/matches\/([\w-]+)(?:\/|$)/);
@@ -181,11 +299,17 @@
     } catch {}
     if (!d || args[1]?.cache === 'reload' || signal?.aborted) {
       const owner = epoch, result = Reflect.apply(network,this,args);
+      if(plan)result.then(response=>{if(response.ok&&owner===epoch)bodyPromise.then(body=>{if(owner===epoch)mutationSucceeded(plan,body);}).catch(()=>{});}).catch(()=>{});
       if (mutation) result.then(response => { if (response.ok) response.clone().json().then(raw => { if (owner === epoch) serverEvent('message.new',{...unwrap(raw),matchId:mutation}); }).catch(() => {}); }).catch(() => {});
       return result;
     }
     const cached = bodies.get(d.key), maxAge = d.messages ? 90000 : d.page ? 300000 : 30000;
-    if (cached && Date.now() - cached.at < maxAge) {
+    const c=d.page?client():null;
+    // TanStack already preserves mounted data while it refetches. Returning a
+    // second stale HTTP cache here would falsely finish that refetch with old
+    // rows. Let an executing page query receive the real network response.
+    const queryRead=c?.getQueryCache().getAll().some(q=>scoped(q)&&family(q)===d.resource&&q.state.fetchStatus==='fetching');
+    if (cached && !queryRead&&Date.now() - cached.at < maxAge) {
       const owner = epoch;
       // Serve the warm page immediately; validate in the background.
       if (active && !document.hidden && Date.now() - cached.at > 1200) request(d,args,this).catch(() => {});
@@ -198,12 +322,14 @@
     return request(d,args,this);
   };
   function reset(id) {
-    if (user !== id) { epoch++;for(const c of ownedControllers)c.abort(); bodies.clear(); flights.clear(); queryClient = null; bus = null; warmVisit = ''; warmCount = 0; }
+    if (user !== id) { epoch++;stopSync();for(const c of ownedControllers)c.abort(); bodies.clear(); flights.clear(); queryClient = null; bus = null;importing=false; warmVisit = ''; warmCount = 0; }
     user = idOK(id) ? id : '';
   }
   function invalidate(id) { for (const [k,b] of bodies) if (b.d.id === id) bodies.delete(k); }
   function serverEvent(type, value) {
     if (!user) return;
+    const eventGroups=type==='notification.new'?['notifications']:type==='like.received'||type==='like.new'?['likes','profile']:type==='visitor.new'?['visitors']:type==='profile.updated'?['profile','browse','likes']:type.startsWith('post.')?['posts']:type.startsWith('guestbook.')?['guestbook','guestbookDanmaku']:type==='account.updated'?['me','profile','likes','browse']:[];
+    if(eventGroups.length)changed(eventGroups);
     if (['match.closed','match.updated','message.recalled','account.updated'].includes(type)) {
       if (idOK(value?.matchId)) invalidate(value.matchId); else if (type === 'account.updated') bodies.clear();
     }
@@ -234,21 +360,25 @@
   }
   window.__vrcrpSiteCache = {
     session(id, nextHeaders) { reset(id); if (nextHeaders) configure(nextHeaders); },
-    active(value) { active = value === true; }, commitCounters, commitMatches, refreshList, warmList, prefetch, serverEvent,
+    active(value) { active = value === true;if(!active){clearTimeout(pollTimer);clearTimeout(refreshTimer);pollTimer=refreshTimer=0;}else{queueRefresh(pageFamilies,Date.now()-1500,true);armPoll();} }, commitCounters, commitMatches, refreshList, warmList, prefetch, serverEvent,
+    pageChanged(){if(foreground()){armPoll();}},
     refreshPage() {
       const c=client();if(!c)return false;
-      for(const [key,b] of bodies)if(b.d.page)bodies.delete(key);
-      return c.invalidateQueries({refetchType:'active'}).then(()=>true,()=>true);
+      const groups=new Set(c.getQueryCache().getAll().filter(q=>scoped(q)&&observed(q)).map(family));changed(groups);
+      pendingRefresh.clear();clearTimeout(refreshTimer);refreshTimer=0;
+      return c.refetchQueries({type:'active',predicate:q=>scoped(q)&&groups.has(family(q))},{cancelRefetch:false}).then(()=>true,()=>true);
     },
     states() { const c = client(); return c ? [...new Set(scopes(c).filter(q => q.getObserversCount() > 0 && q.queryKey[3] === 'matches' && q.queryKey.length === 5).map(q => q.queryKey[4]))].filter(s => s === 'active' || s === 'unmatched') : ['active']; },
     async refreshChat() {
       const m = location.pathname.match(/^\/matches\/([\w-]{1,120})$/); if (!m || !active || document.hidden) return;
       await Promise.allSettled([get('/api/v1/matches/'+m[1]),get('/api/v1/matches/'+m[1]+'/messages?limit=50')]);
     },
-    clear() { epoch++;for(const c of ownedControllers)c.abort(); bodies.clear(); flights.clear(); queryClient = null; bus = null; }
+    clear() { epoch++;stopSync();for(const c of ownedControllers)c.abort(); bodies.clear(); flights.clear(); queryClient = null; bus = null;importing=false; }
   };
   document.addEventListener('pointerdown',event => {
     const a = event.target?.closest?.('a[href]'); if (!a) return;
     try { const url = new URL(a.href,location.href), m = url.pathname.match(/^\/matches\/([\w-]{1,120})$/); if (url.origin === location.origin && m) prefetch(m[1]); } catch {}
   },{capture:true,passive:true});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden){clearTimeout(pollTimer);clearTimeout(refreshTimer);pollTimer=refreshTimer=0;}else if(active){queueRefresh(pageFamilies,Date.now()-1500,true);armPoll();}});
+  window.addEventListener('online',()=>{pauseUntil=0;queueRefresh(pageFamilies,Date.now()-1500,true);armPoll();});
 })();

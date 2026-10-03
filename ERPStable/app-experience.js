@@ -298,6 +298,7 @@
     generation++;settleGeneration++;
     post({ kind: 'route', path: location.pathname, entryKey:entryKey(),parentKey:index>0?String(entryKeys[index-1]):null,direction,showTabs: tabPages.has(location.pathname), canGoBack: index > 0 && !roots.has(location.pathname), refreshable: refreshable.has(location.pathname) });
     if (location.pathname === '/matches') window.__vrcrpSyncChats?.();
+    window.__vrcrpSiteCache?.pageChanged();
     direction='none';
     const key=entryKey();setTimeout(()=>{if(key===entryKey())settle();},0);
   }
