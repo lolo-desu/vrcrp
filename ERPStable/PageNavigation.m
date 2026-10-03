@@ -44,6 +44,13 @@
 @property(nonatomic) NSUInteger captureGeneration;
 @property(nonatomic,strong) UIColor *fromHeader;
 @property(nonatomic,strong) UIColor *toHeader;
+@property(nonatomic,strong) NSMutableDictionary<NSString *,NSDictionary *> *placeholderLayouts;
+@property(nonatomic,strong) UIView *rowFeedback;
+@property(nonatomic,copy) NSString *pressedEntry;
+@property(nonatomic) CGRect pressedFrame;
+@property(nonatomic,strong) UIColor *pressedInk;
+@property(nonatomic) NSTimeInterval pressDeadline;
+@property(nonatomic) NSUInteger pressGeneration;
 @end
 
 @implementation PageNavigation
@@ -51,7 +58,7 @@
     if(!(self=[super init]))return nil;
     self.web=web;self.navigation=navigation;self.header=header;self.currentKey=@"";self.currentPath=@"";
     self.images=[NSCache new];self.images.countLimit=24;self.images.totalCostLimit=48*1024*1024;self.paths=[NSMutableDictionary new];
-    self.retainedPages=[NSMutableDictionary new];self.ancestors=@[];
+    self.retainedPages=[NSMutableDictionary new];self.ancestors=@[];self.placeholderLayouts=[NSMutableDictionary new];
     self.underlay=[UIImageView new];self.underlay.contentMode=UIViewContentModeTopLeft;self.underlay.clipsToBounds=YES;self.underlay.hidden=YES;self.underlay.userInteractionEnabled=NO;
     [web.superview insertSubview:self.underlay belowSubview:web];
     self.shade=[UIView new];self.shade.backgroundColor=UIColor.blackColor;[self.underlay addSubview:self.shade];
@@ -85,7 +92,7 @@
 - (UIColor *)color:(id)value fallback:(UIColor *)fallback {
     if(![value isKindOfClass:NSArray.class]||[value count]!=4)return fallback;
     for(id component in value)if(![component isKindOfClass:NSNumber.class]||!isfinite([component doubleValue])||[component doubleValue]<0||[component doubleValue]>1)return fallback;
-    return [UIColor colorWithRed:[value[0] doubleValue] green:[value[1] doubleValue] blue:[value[2] doubleValue] alpha:1];
+    return [UIColor colorWithRed:[value[0] doubleValue] green:[value[1] doubleValue] blue:[value[2] doubleValue] alpha:[value[3] doubleValue]];
 }
 - (void)configureSurface:(NSDictionary *)model {
     self.parentPath=[model[@"parentPath"] isKindOfClass:NSString.class]?model[@"parentPath"]:nil;
@@ -93,6 +100,12 @@
     self.canvasColor=[self color:model[@"canvasColor"] fallback:self.surfaceColor];
     self.inkColor=[self color:model[@"inkColor"] fallback:UIColor.labelColor];
     self.surfaceTitle=[model[@"title"] isKindOfClass:NSString.class]?model[@"title"]:@"";
+    NSDictionary *layout=[model[@"placeholderLayout"] isKindOfClass:NSDictionary.class]?model[@"placeholderLayout"]:nil;
+    NSString *path=[model[@"path"] isKindOfClass:NSString.class]?model[@"path"]:nil;
+    if(layout&&path&&[layout[@"layers"] isKindOfClass:NSArray.class]&&[layout[@"layers"] count]<=120){
+        self.placeholderLayouts[path]=layout;
+        if(self.placeholderLayouts.count>24)for(NSString *other in self.placeholderLayouts.allKeys)if(![other isEqual:path]){[self.placeholderLayouts removeObjectForKey:other];break;}
+    }
     NSArray *keys=[model[@"ancestors"] isKindOfClass:NSArray.class]?model[@"ancestors"]:@[];
     NSMutableArray *safe=[NSMutableArray new];for(id key in keys)if([key isKindOfClass:NSString.class]&&[key length]<=180&&safe.count<24)[safe addObject:key];self.ancestors=safe;
     NSSet *keep=[NSSet setWithArray:[safe arrayByAddingObject:self.currentKey?:@""]];
@@ -102,6 +115,67 @@
     // eviction alone must not turn a recently visited parent into a blank page.
     for(NSString *key in safe.reverseObjectEnumerator){VRPageImage *page=[self pageForKey:key];if(page&&!self.retainedPages[key]&&cost+page.cost<=40*1024*1024){self.retainedPages[key]=page;cost+=page.cost;}}
 }
+- (CGRect)surfaceRect:(id)value {
+    if(![value isKindOfClass:NSDictionary.class])return CGRectZero;
+    for(NSString *key in @[@"x",@"y",@"width",@"height"]){id n=value[key];if(![n isKindOfClass:NSNumber.class]||!isfinite([n doubleValue])||fabs([n doubleValue])>20000)return CGRectZero;}
+    return CGRectMake([value[@"x"] doubleValue],[value[@"y"] doubleValue],MAX(0,[value[@"width"] doubleValue]),MAX(0,[value[@"height"] doubleValue]));
+}
+- (UIBezierPath *)surfacePath:(CGRect)r radii:(NSArray *)radii {
+    CGFloat c[4]={0,0,0,0};for(NSUInteger i=0;i<MIN(4,radii.count);i++)if([radii[i] isKindOfClass:NSNumber.class])c[i]=MAX(0,MIN(MIN(r.size.width,r.size.height)/2,[radii[i] doubleValue]));
+    CGFloat l=CGRectGetMinX(r),t=CGRectGetMinY(r),right=CGRectGetMaxX(r),b=CGRectGetMaxY(r);
+    UIBezierPath *p=[UIBezierPath bezierPath];[p moveToPoint:CGPointMake(l+c[0],t)];[p addLineToPoint:CGPointMake(right-c[1],t)];
+    [p addQuadCurveToPoint:CGPointMake(right,t+c[1]) controlPoint:CGPointMake(right,t)];[p addLineToPoint:CGPointMake(right,b-c[2])];
+    [p addQuadCurveToPoint:CGPointMake(right-c[2],b) controlPoint:CGPointMake(right,b)];[p addLineToPoint:CGPointMake(l+c[3],b)];
+    [p addQuadCurveToPoint:CGPointMake(l,b-c[3]) controlPoint:CGPointMake(l,b)];[p addLineToPoint:CGPointMake(l,t+c[0])];
+    [p addQuadCurveToPoint:CGPointMake(l+c[0],t) controlPoint:CGPointMake(l,t)];[p closePath];return p;
+}
+- (void)drawSurfaceLayout:(NSDictionary *)layout context:(CGContextRef)context {
+    for(id item in layout[@"layers"]){
+        if(![item isKindOfClass:NSDictionary.class])continue;
+        CGRect rect=[self surfaceRect:item[@"rect"]],clip=[self surfaceRect:item[@"clip"]];if(CGRectIsEmpty(rect)||CGRectIsEmpty(clip))continue;
+        CGContextSaveGState(context);CGContextClipToRect(context,clip);
+        NSArray *radii=[item[@"radius"] isKindOfClass:NSArray.class]?item[@"radius"]:@[];UIBezierPath *shape=[self surfacePath:rect radii:radii];
+        UIColor *fill=[self color:item[@"fill"] fallback:UIColor.clearColor];
+        NSDictionary *shadow=[item[@"shadow"] isKindOfClass:NSDictionary.class]?item[@"shadow"]:nil;
+        if(shadow)CGContextSetShadowWithColor(context,CGSizeMake([shadow[@"x"] doubleValue],[shadow[@"y"] doubleValue]),MAX(0,MIN(60,[shadow[@"blur"] doubleValue])),[self color:shadow[@"color"] fallback:UIColor.clearColor].CGColor);
+        [fill setFill];[shape fill];CGContextSetShadowWithColor(context,CGSizeZero,0,NULL);
+        NSArray *borders=[item[@"border"] isKindOfClass:NSArray.class]?item[@"border"]:@[];
+        if(borders.count==4){
+            CGFloat widths[4];BOOL uniform=YES;for(NSUInteger i=0;i<4;i++){widths[i]=MAX(0,MIN(12,[borders[i][@"width"] doubleValue]));if(i&&widths[i]!=widths[0])uniform=NO;}
+            if(uniform&&widths[0]>0){UIBezierPath *border=[self surfacePath:CGRectInset(rect,widths[0]/2,widths[0]/2) radii:radii];[[self color:borders[0][@"color"] fallback:UIColor.clearColor] setStroke];border.lineWidth=widths[0];[border stroke];}
+            else for(NSUInteger i=0;i<4;i++)if(widths[i]>0){
+                CGRect edge=i==0?CGRectMake(rect.origin.x,rect.origin.y,rect.size.width,widths[i]):i==1?CGRectMake(CGRectGetMaxX(rect)-widths[i],rect.origin.y,widths[i],rect.size.height):i==2?CGRectMake(rect.origin.x,CGRectGetMaxY(rect)-widths[i],rect.size.width,widths[i]):CGRectMake(rect.origin.x,rect.origin.y,widths[i],rect.size.height);
+                [[self color:borders[i][@"color"] fallback:UIColor.clearColor] setFill];UIRectFill(edge);
+            }
+        }
+        if([item[@"text"] isKindOfClass:NSString.class]){
+            UIFont *font=[UIFont systemFontOfSize:MAX(10,MIN(30,[item[@"fontSize"] doubleValue])) weight:[item[@"weight"] doubleValue]>=600?UIFontWeightBold:UIFontWeightRegular];
+            [item[@"text"] drawInRect:rect withAttributes:@{NSFontAttributeName:font,NSForegroundColorAttributeName:[self color:item[@"ink"] fallback:self.inkColor?:UIColor.labelColor]}];
+        }
+        if([item[@"glyph"] isEqual:@"back"]){CGFloat x=CGRectGetMidX(rect),y=CGRectGetMidY(rect);UIBezierPath *back=[UIBezierPath bezierPath];[back moveToPoint:CGPointMake(x+3,y-9)];[back addLineToPoint:CGPointMake(x-5,y)];[back addLineToPoint:CGPointMake(x+3,y+9)];back.lineWidth=2.5;[self.inkColor?:UIColor.labelColor setStroke];[back stroke];}
+        CGContextRestoreGState(context);
+    }
+}
+- (void)clearRowFeedback {
+    self.pressGeneration++;self.pressedEntry=nil;self.pressDeadline=0;[self.rowFeedback.layer removeAllAnimations];[self.rowFeedback removeFromSuperview];self.rowFeedback=nil;
+}
+- (void)fadeRowFeedback {
+    if(!self.rowFeedback||self.pressDeadline<=0)return;
+    NSUInteger owner=++self.pressGeneration;NSTimeInterval delay=MAX(0,self.pressDeadline-NSDate.date.timeIntervalSinceReferenceDate-.10);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(delay*NSEC_PER_SEC)),dispatch_get_main_queue(),^{
+        if(owner!=self.pressGeneration)return;UIView *feedback=self.rowFeedback;
+        [UIView animateWithDuration:.10 delay:0 options:UIViewAnimationOptionAllowUserInteraction animations:^{feedback.alpha=0;} completion:^(BOOL finished){if(owner==self.pressGeneration)[self clearRowFeedback];}];
+    });
+}
+- (void)updateRowPress:(NSDictionary *)model {
+    if([model[@"active"] isEqual:@YES]){
+        if([model[@"released"] isEqual:@YES]){
+            self.pressDeadline=NSDate.date.timeIntervalSinceReferenceDate+.26;[self fadeRowFeedback];
+        }else{
+            [self clearRowFeedback];self.pressedEntry=self.currentKey;self.pressedFrame=[self surfaceRect:model[@"rect"]];self.pressedInk=[self color:model[@"ink"] fallback:[UIColor.blackColor colorWithAlphaComponent:.12]];
+        }
+    }else if(![model[@"reason"] isEqual:@"navigation"])[self clearRowFeedback];
+}
 - (UIImage *)placeholderForPath:(NSString *)path {
     CGSize size=self.web.bounds.size;if(size.width<1||size.height<1)return nil;
     UIColor *paper=self.surfaceColor?:self.header.backgroundColor?:UIColor.systemBackgroundColor;
@@ -110,6 +184,8 @@
     UIGraphicsImageRenderer *renderer=[[UIGraphicsImageRenderer alloc] initWithSize:size format:format];
     return [renderer imageWithActions:^(UIGraphicsImageRendererContext *ctx){
         [canvas setFill];UIRectFill(CGRectMake(0,0,size.width,size.height));
+        NSDictionary *layout=self.placeholderLayouts[path];
+        if(layout&&fabs([layout[@"width"] doubleValue]-size.width)<2&&[layout[@"layers"] count]){[self drawSurfaceLayout:layout context:ctx.CGContext];return;}
         [paper setFill];UIRectFill(CGRectMake(0,0,size.width,56));
         void(^block)(CGRect,CGFloat)=^(CGRect rect,CGFloat radius){[[ink colorWithAlphaComponent:.1] setFill];[[UIBezierPath bezierPathWithRoundedRect:rect cornerRadius:radius] fill];};
         void(^card)(CGRect)=^(CGRect rect){[paper setFill];UIBezierPath *shape=[UIBezierPath bezierPathWithRoundedRect:rect cornerRadius:16];[shape fill];[[ink colorWithAlphaComponent:.12] setStroke];shape.lineWidth=1;[shape stroke];};
@@ -176,6 +252,7 @@
     if(self.onHeaderColor)self.onHeaderColor(color);
 }
 - (void)complete {
+    [self clearRowFeedback];
     self.generation++;self.waitingReturn=NO;self.interactive=NO;self.progress=0;
     self.handoff=NO;self.handoffView=nil;self.paintRequested=NO;self.foregroundPreview=NO;
     [self.web.layer removeAllAnimations];[self.underlay.layer removeAllAnimations];[self.outgoing.layer removeAllAnimations];[self.shade.layer removeAllAnimations];
@@ -242,7 +319,11 @@
         self.waitingReturn=NO;self.routeReady=NO;
         [self holdCover:self.handoffView?:self.underlay];return;
     }
+    NSString *pressedEntry=self.pressedEntry;CGRect pressedFrame=self.pressedFrame;UIColor *pressedInk=self.pressedInk;NSTimeInterval pressDeadline=self.pressDeadline;
     if(self.transitioning||self.handoff)[self complete];
+    // A second tap can arrive during the previous handoff's fade. Completing
+    // that presentation must not erase the newly pressed row's feedback.
+    if([direction isEqual:@"push"]&&[pressedEntry isEqual:oldKey]){self.pressedEntry=pressedEntry;self.pressedFrame=pressedFrame;self.pressedInk=pressedInk;self.pressDeadline=pressDeadline;}
     // Query/history entries belonging to a modal are not another page. Never
     // replay a cached list as a returning destination when the path is equal.
     if([oldKey isEqual:key]||[oldPath isEqual:path])return;
@@ -257,6 +338,13 @@
     if([direction isEqual:@"push"]) {
         self.underlay.image=oldImage?:[self placeholderForPath:oldPath];self.underlay.backgroundColor=old.header?:self.header.backgroundColor;self.underlay.hidden=NO;self.previewKey=oldKey;
         [self.web.superview insertSubview:self.underlay aboveSubview:self.web];
+        // Press feedback belongs only to this departing presentation. Cached
+        // parent images remain clean, so returning cannot restore a selection.
+        if([self.pressedEntry isEqual:oldKey]&&!CGRectIsEmpty(self.pressedFrame)&&(!self.pressDeadline||self.pressDeadline>NSDate.date.timeIntervalSinceReferenceDate)){
+            self.rowFeedback=[[UIView alloc] initWithFrame:self.pressedFrame];self.rowFeedback.backgroundColor=self.pressedInk;self.rowFeedback.userInteractionEnabled=NO;
+            [self.underlay insertSubview:self.rowFeedback belowSubview:self.shade];
+            [self fadeRowFeedback];
+        }
         self.underlay.transform=CGAffineTransformIdentity;self.shade.alpha=0;
         self.outgoing.image=destinationImage;self.outgoing.backgroundColor=destination.header?:self.surfaceColor;self.outgoing.hidden=NO;
         self.outgoing.transform=CGAffineTransformMakeTranslation(width,0);
@@ -268,6 +356,7 @@
             self.outgoing.transform=CGAffineTransformIdentity;self.underlay.transform=CGAffineTransformMakeTranslation(-width*.27,0);self.shade.alpha=.2;
         } completion:^(BOOL finished){if(generation!=self.generation)return;self.animationDone=YES;self.underlay.hidden=YES;[self holdCover:self.outgoing];}];
     } else {
+        [self clearRowFeedback];
         self.underlay.image=destinationImage;self.previewKey=key;
         self.underlay.backgroundColor=destination.header?:self.surfaceColor;self.underlay.hidden=NO;
         [self.web.superview insertSubview:self.underlay aboveSubview:self.web];
@@ -328,5 +417,5 @@
       }];
 }
 - (void)abortReturn { if(self.fromHeader&&self.onHeaderColor)self.onHeaderColor(self.fromHeader);[self complete]; }
-- (void)clear { [self complete];[self.images removeAllObjects];[self.retainedPages removeAllObjects];[self.paths removeAllObjects];self.ancestors=@[];self.captureGeneration++; }
+- (void)clear { [self complete];[self.images removeAllObjects];[self.retainedPages removeAllObjects];[self.paths removeAllObjects];[self.placeholderLayouts removeAllObjects];self.ancestors=@[];self.captureGeneration++; }
 @end

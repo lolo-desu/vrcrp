@@ -20,8 +20,8 @@ with sync_playwright() as p:
   def background():return row.evaluate('e=>getComputedStyle(e).backgroundColor')
   row.hover();assert background()=='rgba(0, 0, 0, 0)'
   b=row.bounding_box();x,y=b['x']+50,b['y']+20
-  page.mouse.move(x,y);page.mouse.down();assert background()=='rgb(224, 231, 240)'
-  page.mouse.up();page.wait_for_timeout(260);assert background()=='rgba(0, 0, 0, 0)'
+  page.mouse.move(x,y);page.mouse.down();assert background()=='rgba(39, 51, 73, 0.12)'
+  page.wait_for_timeout(350);page.mouse.up();page.wait_for_timeout(160);assert background()=='rgba(39, 51, 73, 0.12)';page.wait_for_timeout(260);assert background()=='rgba(0, 0, 0, 0)'
   row.focus();assert background()=='rgba(0, 0, 0, 0)'
   page.mouse.down();page.mouse.move(x,y-15);page.wait_for_timeout(150);assert background()=='rgba(0, 0, 0, 0)';page.mouse.up()
   page.mouse.move(x,y);page.mouse.down();page.dispatch_event('body','pointercancel');page.wait_for_timeout(150);assert background()=='rgba(0, 0, 0, 0)';page.mouse.up()

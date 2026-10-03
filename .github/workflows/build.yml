@@ -78,6 +78,8 @@ jobs:
             build/simulator-timeout.log
             build/touch-tests.log
             build/touch-native.log
+            build/feedback-*.json
+            build/feedback-*.png
           if-no-files-found: error
           retention-days: 30
       - uses: actions/upload-artifact@v4

@@ -266,6 +266,22 @@ for phase,expected in [('dark-pull',[24/255,28/255,35/255,1]),('light-pull',[1,1
 assert 'external' not in stages['completed'] and stages['completed']['path']=='/discover',stages['completed']
 print('PASS: real iOS external URL/header/back/forward/close; profile editing keyboard/back and sibling history; peer chat toolbar/badge; refresh surface and position; overlay preview/cancel/return')
 PYSURFACES
+xcrun simctl launch --terminate-running-process "$SIM_ID" local.erp.stable --verify-feedback
+wait_for_report feedback-returned.json
+cp "$DATA_PATH/Documents/"feedback-*.json "$ROOT/build/"
+cp "$DATA_PATH/Documents/"feedback-*.png "$ROOT/build/"
+python3 - "$ROOT/build" <<'PYFEEDBACK'
+import json,sys
+from pathlib import Path
+reports={p:json.loads((Path(sys.argv[1])/f'feedback-{p}.json').read_text()) for p in ['departing','cold-chat','returned']}
+for phase,r in reports.items():
+ print(phase,r)
+ assert 'error' not in r and r['loads']==1 and r['webEnabled'],r
+assert reports['departing']['feedbackVisible'] and reports['departing']['transitioning'],reports['departing']
+assert reports['cold-chat']['handoff'] and not reports['cold-chat']['feedbackVisible'] and reports['cold-chat']['measuredShapes']>=12,reports['cold-chat']
+assert reports['returned']['path']=='/matches' and reports['returned']['pressedRows']==0 and not reports['returned']['feedbackVisible'] and not reports['returned']['handoff'],reports['returned']
+print('PASS: actual UIKit departing list retains immediate press feedback; measured bordered chat skeleton persists during cold load; returned cached parent has no selected row')
+PYFEEDBACK
 xcrun simctl launch --terminate-running-process "$SIM_ID" local.erp.stable --preview-login
 sleep 12
 xcrun simctl io "$SIM_ID" screenshot "$ROOT/build/web-login.png"

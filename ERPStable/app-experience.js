@@ -21,21 +21,69 @@
     [data-vrcrp-swipe-group="true"] { max-width: min(100%, var(--vrcrp-swipe-width)) !important; }
     [data-vrcrp-swipe-actions="true"] > * { flex-shrink: 0 !important; }
     #vrcrp-page-placeholder { position:fixed; inset:0; z-index:47; overflow:hidden; background:rgb(var(--bg, 245 245 245)); color:rgb(var(--fg, 35 35 35)); pointer-events:none; }
-    #vrcrp-page-placeholder .vr-page-top { height:56px; display:flex; align-items:center; gap:12px; padding:0 16px; background:rgb(var(--surface, 255 255 255)); border-bottom:1px solid rgb(var(--fg, 35 35 35) / .12); font:600 17px system-ui; }
-    #vrcrp-page-placeholder button { pointer-events:auto; background:transparent; border:0; color:inherit; height:44px; width:44px; margin-left:-8px; display:grid; place-items:center; touch-action:manipulation; }
-    #vrcrp-page-placeholder .vr-page-body { padding:20px 12px; max-width:768px; margin:auto; }
-    #vrcrp-page-placeholder .vr-page-card { background:rgb(var(--surface, 255 255 255)); border:1px solid rgb(var(--fg, 35 35 35) / .12); border-radius:16px; padding:16px; margin-bottom:14px; }
-    #vrcrp-page-placeholder .vr-page-row { display:flex; align-items:center; gap:12px; margin:8px 0 24px; }
-    #vrcrp-page-placeholder .vr-page-lines { flex:1; }
-    #vrcrp-page-placeholder .vr-page-block { background:rgb(var(--fg, 35 35 35) / .09); border-radius:7px; height:12px; margin:10px 0; animation:vr-page-breathe 1.8s ease-in-out infinite alternate; }
-    #vrcrp-page-placeholder .vr-page-avatar { width:48px; height:48px; flex-shrink:0; border-radius:50%; }
-    #vrcrp-page-placeholder .vr-page-media { height:180px; margin-bottom:18px; }
-    #vrcrp-page-placeholder .vr-page-compose { position:absolute; bottom:calc(6px + env(safe-area-inset-bottom)); left:12px; right:12px; height:56px; border-radius:16px; background:rgb(var(--surface, 255 255 255)); border:1px solid rgb(var(--fg, 35 35 35) / .12); padding:0 16px; }
+    #vrcrp-page-placeholder { display:flex; flex-direction:column; box-sizing:border-box; height:var(--vrcrp-viewport-height,100dvh); }
+    .vr-page-top { flex-shrink:0; height:56px; display:flex; align-items:center; gap:12px; padding:0 16px; background:rgb(var(--surface,255 255 255)); border-bottom:1px solid rgb(var(--border,230 232 236)); }
+    [data-preset="pop"] .vr-page-top { border-bottom:2.5px solid rgb(var(--line,22 24 29)); }
+    .vr-page-top .vr-page-block { margin:0; }
+    .vr-page-end { margin-left:auto; display:flex; align-items:center; gap:16px; }
+    .vr-page-body { width:100%; padding:20px 12px 16px; max-width:672px; margin:0 auto; box-sizing:border-box; }
+    .vr-page-wide { max-width:1024px; }
+    .vr-page-heading { display:flex; align-items:center; gap:12px; min-height:28px; margin-bottom:16px; }
+    .vr-page-title { font:800 20px/28px system-ui; margin:0; }
+    #vrcrp-page-placeholder button { pointer-events:auto; background:transparent; border:0; color:inherit; height:44px; width:44px; flex-shrink:0; padding:0; display:grid; place-items:center; touch-action:manipulation; }
+    .vr-page-card { padding:20px; margin-bottom:16px; }
+    /* Keep the actual website card class: its presets own borders and shadows. */
+    :where(.vr-page-panel) { background:rgb(var(--surface,255 255 255)); border-radius:var(--radius-card,16px); border:1px solid rgb(var(--border,230 232 236)); }
+    .vr-page-row { display:flex; align-items:center; gap:12px; }
+    .vr-page-row .vr-page-lines .vr-page-block { margin:6px 0; }
+    .vr-page-lines { flex:1; min-width:0; }
+    .vr-page-block { background:rgb(var(--fg,35 35 35) / .10); border-radius:7px; height:12px; margin:10px 0; flex-shrink:0; animation:vr-page-breathe 1.8s ease-in-out infinite alternate; }
+    .vr-page-avatar { flex-shrink:0; border-radius:50%; margin:0; }
+    .vr-page-icon { border-radius:10px; margin:0; }
+    .vr-page-list { padding:0; overflow:hidden; }
+    .vr-page-list > .vr-page-row { padding:12px; border-bottom:1px solid rgb(var(--border,230 232 236)); }
+    .vr-page-list > .vr-page-row:last-child { border-bottom:0; }
+    .vr-page-menu > .vr-page-row { padding:16px; }
+    .vr-page-tabs { display:flex; gap:8px; margin-bottom:16px; }
+    .vr-page-tabs > .vr-page-block { width:28%; height:36px; border-radius:var(--radius-ctl,10px); margin:0; }
+    .vr-page-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+    .vr-page-tile { aspect-ratio:3/4; overflow:hidden; margin:0; position:relative; }
+    .vr-page-media { width:100%; border-radius:12px; margin:0; }
+    .vr-page-tile > .vr-page-media { height:100%; border-radius:0; }
+    .vr-page-tile-label { position:absolute; bottom:12px; left:12px; right:12px; }
+    .vr-page-cover { height:128px; border-radius:0; margin:0; }
+    .vr-page-hero { padding:0; overflow:hidden; position:relative; }
+    .vr-page-hero > .vr-page-media { height:auto; aspect-ratio:4/5; max-height:70vh; border-radius:0; }
+    .vr-page-hero .vr-page-tile-label { bottom:24px; left:20px; right:20px; }
+    .vr-page-swipe { width:min(100%,380px,calc((var(--vrcrp-viewport-height,100dvh) - var(--vrcrp-placeholder-nav-height,74px) - 212px)*3/4.3)); margin:auto; }
+    .vr-page-swipe .vr-page-hero { margin-bottom:0; }
+    .vr-page-swipe .vr-page-hero > .vr-page-media { aspect-ratio:3/4.3; max-height:none; }
+    .vr-page-post { padding:0; overflow:hidden; margin-bottom:12px; }
+    .vr-page-post > .vr-page-media { height:auto; aspect-ratio:2/1; border-radius:0; }
+    .vr-page-toggle { width:38px; height:22px; border-radius:20px; }
+    .vr-page-input { height:44px; border-radius:var(--radius-ctl,10px); padding:0 12px; margin:0 0 20px; }
+    .vr-page-input .vr-page-block { display:inline-block; }
+    .vr-page-actions { display:flex; gap:16px; margin-top:16px; }
+    .vr-page-actions > .vr-page-block { width:24px; height:24px; margin:0; }
+    .vr-page-chat-top { display:flex; flex-shrink:0; align-items:center; gap:8px; padding:8px 20px; min-height:60px; margin:0 0 8px; border-radius:0!important; border-top:0!important; border-left:0!important; border-right:0!important; background:rgb(var(--surface,255 255 255))!important; }
+    .vr-page-chat-top .vr-page-block { margin:4px 0; }
+    .vr-page-chat-top > .vr-page-block { margin:0; }
+    .vr-page-chat-body { display:flex; flex-direction:column; flex:1; min-height:0; max-width:792px; padding:0 12px calc(6px + env(safe-area-inset-bottom)); }
+    .vr-page-chat-pane { flex:1; min-height:0; padding:12px; overflow:hidden; margin:0; }
+    .vr-page-bubble { max-width:78%; width:62%; border-radius:24px; background:rgb(var(--fg,35 35 35) / .035); padding:8px 14px; margin:4px 0 16px; box-sizing:border-box; }
+    .vr-page-bubble:nth-child(even) { margin-left:auto; width:74%; border-bottom-right-radius:6px; }
+    .vr-page-bubble:nth-child(odd) { border-bottom-left-radius:6px; }
+    .vr-page-compose { display:flex; align-items:center; gap:6px; flex-shrink:0; padding:8px; margin-top:8px; min-height:58px; }
+    .vr-page-compose .vr-page-block { margin:0; }
+    .vr-page-compose .vr-page-lines { min-height:var(--vrcrp-compose-field-height,40px); display:flex; align-items:center; }
+    .vr-page-note-line { height:16.5px; margin-top:4px; display:flow-root; flex-shrink:0; }
+    .vr-page-note { margin:5.25px auto; height:6px; width:44%; }
+    .vrcrp-inline-placeholder { visibility:visible!important; width:100%; padding:0; box-sizing:border-box; }
+    .vrcrp-inline-placeholder .vr-page-body { padding:0; }
+    @media(min-width:640px) { .vr-page-body { padding-left:20px; padding-right:20px; } .vr-page-chat-body { padding-top:0; } .vr-page-grid { grid-template-columns:repeat(3,minmax(0,1fr)); } .vr-page-feed { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; } }
     html[data-vrcrp-page-pending="true"] #main { pointer-events:none; }
-    [data-vrcrp-loading-surface="true"] { position:relative!important; display:block!important; min-height:min(360px,calc(var(--vrcrp-viewport-height,100dvh)*.5)); width:100%; overflow:hidden; }
-    [data-vrcrp-loading-surface="true"] > * { visibility:hidden!important; }
-    [data-vrcrp-loading-surface="true"]::before { content:""; position:absolute; inset:12px; background:rgb(var(--surface,255 255 255)); border:1px solid rgb(var(--fg,35 35 35) / .12); border-radius:16px; }
-    [data-vrcrp-loading-surface="true"]::after { content:""; position:absolute; inset:28px; background-image:radial-gradient(circle at 24px 24px,rgb(var(--fg,35 35 35) / .1) 23px,transparent 24px),linear-gradient(rgb(var(--fg,35 35 35) / .1) 0 0),linear-gradient(rgb(var(--fg,35 35 35) / .1) 0 0),linear-gradient(rgb(var(--fg,35 35 35) / .08) 0 0),linear-gradient(rgb(var(--fg,35 35 35) / .1) 0 0),linear-gradient(rgb(var(--fg,35 35 35) / .1) 0 0); background-repeat:no-repeat; background-size:48px 48px,45% 12px,65% 10px,100% 170px,88% 12px,64% 12px; background-position:0 0,66px 7px,66px 31px,0 76px,0 268px,0 296px; animation:vr-inline-breathe 1.8s ease-in-out infinite alternate; }
+    [data-vrcrp-loading-surface="true"] { position:relative!important; display:block!important; width:100%; overflow:hidden; }
+    [data-vrcrp-loading-surface="true"] > :not(.vrcrp-inline-placeholder) { visibility:hidden!important; position:absolute; }
     @keyframes vr-inline-breathe { to { opacity:.55; } }
     @keyframes vr-page-breathe { to { background:rgb(var(--fg, 35 35 35) / .14); } }
     @media(prefers-reduced-motion:reduce) { #vrcrp-page-placeholder .vr-page-block,[data-vrcrp-loading-surface="true"]::after { animation:none; } }
@@ -238,7 +286,40 @@
   window.__vrcrpEntryKey=entryKey;
   let placeholder=null, presentation=null, departedMain=null, departedNodes=[], departedText='', domVersion=0, paintMemo=null;
   const loadingSelector='.animate-spin,[role="progressbar"],[aria-busy="true"],.loading,[data-loading="true"],[role="status"]';
-  const pageTitle=path=>/^\/matches\//.test(path)?'聊天':/^\/profile\/edit/.test(path)?'编辑名片':/^\/u\//.test(path)?'个人资料':/^\/posts\//.test(path)?'帖子':({'/matches':'配对','/likes':'喜欢','/likes/sent':'喜欢','/posts':'广场','/notifications':'通知','/visitors':'访客','/me':'我的','/discover':'探索','/browse':'探索'})[path]||(/^\/settings/.test(path)?'设置':'详情');
+  const pageTitle=path=>/^\/matches\//.test(path)?'聊天':/^\/profile\/edit/.test(path)?'编辑名片':/^\/u\//.test(path)?'个人资料':/^\/posts\//.test(path)?'帖子':({'/matches':'配对','/likes':'喜欢','/likes/sent':'喜欢','/posts':'广场','/notifications':'通知','/visitors':'访客','/me':'我的','/discover':'探索','/browse':'探索','/login':'登录','/register':'注册','/settings':'设置','/settings/privacy':'隐私','/settings/notifications':'通知设置','/settings/appearance':'外观','/settings/account':'账号','/settings/energy':'能量','/settings/membership':'会员'})[path]||(/^\/settings/.test(path)?'设置':'详情');
+  const skeletonBlock=(width='100%',height=12,extra='')=>`<div data-vrcrp-shape class="vr-page-block ${extra}" style="width:${width};height:${height}px"></div>`;
+  const skeletonRow=(size=48)=>`<div class="vr-page-row">${skeletonBlock(size+'px',size,'vr-page-avatar')}<div class="vr-page-lines">${skeletonBlock('46%')}${skeletonBlock('82%',10)}</div></div>`;
+  const skeletonCard=(content,extra='',padding=true)=>`<div data-vrcrp-shape class="card vr-page-panel ${padding?'vr-page-card':''} ${extra}">${content}</div>`;
+  const skeletonTabs=()=>`<div class="vr-page-tabs">${Array.from({length:3},()=>skeletonBlock('28%',36)).join('')}</div>`;
+  const skeletonTiles=(n=4)=>`<div class="vr-page-grid">${Array.from({length:n},()=>skeletonCard(skeletonBlock('100%',0,'vr-page-media')+`<div class="vr-page-tile-label">${skeletonBlock('64%')}${skeletonBlock('86%',8)}</div>`,'vr-page-tile',false).replace('height:0px','')).join('')}</div>`;
+  const skeletonBubbles=()=>[62,74,48,68].map((w,i)=>`<div data-vrcrp-shape class="vr-page-bubble ${i%2?'bubble-me':'bubble-them'}" style="width:${w}%">${skeletonBlock('84%')}${i===1?skeletonBlock('64%'):''}${skeletonBlock('26%',6)}</div>`).join('');
+  function skeletonBody(path,fragment=false){
+    if(/^\/matches\//.test(path))return fragment?skeletonBubbles():skeletonCard(skeletonBubbles(),'vr-page-chat-pane',false)+skeletonCard(`${skeletonBlock('24px',24,'vr-page-icon')}${skeletonBlock('24px',24,'vr-page-icon')}<div class="vr-page-lines">${skeletonBlock('70%')}</div>${skeletonBlock('40px',40,'vr-page-icon')}`,'vr-page-compose',false)+`<div class="vr-page-note-line">${skeletonBlock('44%',6,'vr-page-note')}</div>`;
+    if(['/likes','/likes/sent','/browse'].includes(path))return skeletonTabs()+skeletonTiles(6);
+    if(['/matches','/notifications','/visitors','/settings'].includes(path)){
+      const size=path==='/matches'?52:path==='/notifications'?36:40;
+      return (path==='/matches'||path==='/visitors'?skeletonTabs():'')+skeletonCard(Array.from({length:6},()=>skeletonRow(size)).join(''),'vr-page-list'+(path==='/notifications'||path==='/settings'?' vr-page-menu':''),false);
+    }
+    if(/^\/u\//.test(path))return skeletonCard(skeletonBlock('100%',0,'vr-page-media').replace('height:0px','')+`<div class="vr-page-tile-label">${skeletonBlock('48%',20)}${skeletonBlock('74%')}${skeletonBlock('56%',8)}</div>`,'vr-page-card vr-page-hero',false)+skeletonCard(skeletonBlock('38%',16)+skeletonBlock('96%')+skeletonBlock('84%')+skeletonBlock('68%'));
+    if(path==='/discover'||path==='/')return `<div class="vr-page-swipe">`+skeletonCard(skeletonBlock('100%',0,'vr-page-media').replace('height:0px','')+`<div class="vr-page-tile-label">${skeletonBlock('54%',20)}${skeletonBlock('78%')}</div>`,'vr-page-card vr-page-hero',false)+`<div class="vr-page-actions" style="justify-content:center">${[1,2,3].map(()=>skeletonBlock('60px',60,'vr-page-avatar')).join('')}</div></div>`;
+    if(path==='/me')return skeletonCard(skeletonBlock('100%',128,'vr-page-cover')+`<div style="padding:20px">${skeletonRow(64)}${skeletonBlock('100%',8)}${skeletonBlock('54%')}</div>`,'vr-page-card',false)+skeletonCard(Array.from({length:5},()=>skeletonRow(36)).join(''),'vr-page-list',false);
+    if(path==='/posts')return skeletonTabs()+`<div class="vr-page-feed">${Array.from({length:3},()=>skeletonCard(skeletonBlock('100%',0,'vr-page-media').replace('height:0px','')+`<div style="padding:16px">${skeletonRow(32)}${skeletonBlock('94%')}${skeletonBlock('68%')}<div class="vr-page-actions">${[1,2,3].map(()=>skeletonBlock('24px',24)).join('')}</div></div>`,'vr-page-card vr-page-post',false)).join('')}</div>`;
+    if(/^\/posts\/(?:new|[^/]+\/edit)/.test(path))return skeletonCard(skeletonBlock('38%')+skeletonCard(skeletonBlock('78%'),'vr-page-input',false)+skeletonBlock('100%',180,'vr-page-media')+skeletonBlock('100%',44));
+    if(/^\/posts\//.test(path))return skeletonCard(skeletonRow(40)+skeletonBlock('92%')+skeletonBlock('78%')+skeletonBlock('100%',200,'vr-page-media')+`<div class="vr-page-actions">${[1,2,3].map(()=>skeletonBlock('24px',24)).join('')}</div>`)+skeletonCard(skeletonBlock('36%',16)+skeletonRow(32)+skeletonBlock('88%'));
+    if(/^\/profile\/edit/.test(path)){
+      const progress=skeletonCard(skeletonBlock('36%')+skeletonBlock('100%',8)+skeletonBlock('72%',8));
+      const form=/\/photos$/.test(path)?skeletonTiles(4):/\/(?:bio|about)$/.test(path)?skeletonCard(skeletonBlock('40%')+skeletonBlock('100%',180,'vr-page-media')+skeletonBlock('100%',44)):skeletonForm(3);
+      return progress+skeletonTabs()+form;
+    }
+    if(/^\/(?:login|register|forgot-password|reset-password)/.test(path))return skeletonForm(path==='/register'?3:2)+skeletonBlock('64%',10);
+    if(['/settings/privacy','/settings/notifications'].includes(path))return skeletonToggleGroup(4)+skeletonToggleGroup(3);
+    if(path==='/settings/appearance')return skeletonTabs()+skeletonTiles(4)+skeletonCard(skeletonBlock('32%')+skeletonBlock('100%',8));
+    if(['/settings/energy','/settings/membership'].includes(path))return skeletonCard(skeletonBlock('40%')+skeletonBlock('34%',32)+skeletonBlock('82%'))+skeletonToggleGroup(3);
+    if(['/settings/language','/settings/blocks','/settings/login-methods'].includes(path))return skeletonCard(Array.from({length:5},()=>skeletonRow(36)).join(''),'vr-page-list vr-page-menu',false);
+    return skeletonForm(3)+skeletonCard(skeletonBlock('36%',16)+skeletonBlock('94%')+skeletonBlock('72%'));
+  }
+  function skeletonToggleGroup(count){return skeletonCard(Array.from({length:count},()=>`<div class="vr-page-row" style="margin-bottom:16px"><div class="vr-page-lines">${skeletonBlock('46%')}${skeletonBlock('78%',10)}</div>${skeletonBlock('38px',22,'vr-page-toggle')}</div>`).join(''));}
+  function skeletonForm(count){return skeletonCard(Array.from({length:count},()=>skeletonBlock('32%')+skeletonCard(skeletonBlock('66%'),'input vr-page-input',false)).join('')+skeletonBlock('100%',44));}
   const loadingSurfaces=new Map();
   function updateLoadingSurfaces(){
     const next=new Set();
@@ -248,10 +329,14 @@
       if(!el.querySelector('.animate-spin')||el.closest('button,.app-top,.app-bottom')||el.querySelector('button,a[href],input,textarea,select,[role="alert"]'))continue;
       const label=el.textContent.trim()||el.getAttribute('aria-label')||'加载中';if(label.length>120)continue;
       next.add(el);
+      const path=el.closest('[data-dialog],[role="dialog"],[data-vrcrp-profile-overlay]')?'/u/pending':location.pathname;
       if(!loadingSurfaces.has(el)){loadingSurfaces.set(el,el.getAttribute('aria-label'));el.dataset.vrcrpLoadingSurface='true';if(!el.hasAttribute('aria-label'))el.setAttribute('aria-label',label);}
+      let content=el.querySelector(':scope > .vrcrp-inline-placeholder');
+      if(!content){content=document.createElement('div');content.className='vrcrp-inline-placeholder';content.setAttribute('aria-hidden','true');el.append(content);}
+      if(content.dataset.path!==path){content.dataset.path=path;content.innerHTML=skeletonBody(path,true);}
     }
     for(const [el,label] of loadingSurfaces)if(!next.has(el)){
-      el.removeAttribute('data-vrcrp-loading-surface');if(label===null)el.removeAttribute('aria-label');else el.setAttribute('aria-label',label);loadingSurfaces.delete(el);
+      el.querySelector(':scope > .vrcrp-inline-placeholder')?.remove();el.removeAttribute('data-vrcrp-loading-surface');if(label===null)el.removeAttribute('aria-label');else el.setAttribute('aria-label',label);loadingSurfaces.delete(el);
     }
   }
   function installPlaceholder(path){
@@ -260,24 +345,51 @@
     if(!document.body)return;
     if(!document.getElementById('vrcrp-app-surfaces')){const style=document.createElement('style');style.id='vrcrp-app-surfaces';style.textContent=css;document.head.append(style);}
     const shell=document.createElement('section');shell.id='vrcrp-page-placeholder';shell.setAttribute('aria-label','正在加载'+pageTitle(path));
-    const top=document.createElement('div');top.className='vr-page-top';
-    if(index>0&&!roots.has(path)){
+    const chat=/^\/matches\//.test(path),auth=/^\/(?:login|register|forgot-password|reset-password)/.test(path);
+    const top=document.createElement('div');top.className=chat?'card vr-page-chat-top':'vr-page-top';top.dataset.vrcrpShape='';
+    const heading=document.createElement('div');heading.className='vr-page-heading';
+    if(chat||index>0&&!roots.has(path)){
       const back=document.createElement('button');back.type='button';back.setAttribute('aria-label','返回');
-      back.innerHTML='<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m15 5-7 7 7 7"/></svg>';
-      back.addEventListener('click',()=>window.__vrcrpBack?.());top.append(back);
+      back.dataset.vrcrpGlyph='back';back.dataset.vrcrpShape='';back.innerHTML='<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="m15 5-7 7 7 7"/></svg>';
+      back.addEventListener('click',()=>{if(!window.__vrcrpBack?.()&&chat)window.__vrcrpOpenRoot?.('/matches');});(chat?top:heading).append(back);
     }
-    const title=document.createElement('span');title.textContent=pageTitle(path);top.append(title);
-    const block=(width='100%',extra='')=>`<div class="vr-page-block ${extra}" style="width:${width}"></div>`;
-    const row=`<div class="vr-page-row">${block('48px','vr-page-avatar')}<div class="vr-page-lines">${block('46%')}${block('82%')}</div></div>`;
-    const body=document.createElement('div');body.className='vr-page-body';
-    if(/^\/matches\//.test(path)){
-      body.innerHTML=[62,78,48,70].map((w,i)=>`<div class="vr-page-card" style="width:${w}%;margin-left:${i%2?'auto':'0'};height:${i===1?80:58}px">${block('76%')}</div>`).join('');
-      const compose=document.createElement('div');compose.className='vr-page-compose';compose.innerHTML=block('80%');shell.append(compose);
-    }else if(/^\/u\/|^\/profile\/edit|^\/posts(?:\/|$)|^\/discover$|^\/browse$/.test(path)){
-      body.innerHTML=`<div class="vr-page-card">${row}${block('100%','vr-page-media')}${block('92%')}${block('66%')}</div><div class="vr-page-card">${block('84%')}${block('94%')}${block('62%')}</div>`;
-    }else body.innerHTML=`<div class="vr-page-card">${row.repeat(6)}</div>`;
-    shell.append(top,body);document.body.append(shell);placeholder=shell;
+    const title=document.createElement('span');title.className='vr-page-title';title.dataset.vrcrpShape='';title.textContent=pageTitle(path);heading.append(title);
+    if(chat)top.insertAdjacentHTML('beforeend',skeletonBlock('40px',40,'vr-page-avatar')+`<div class="vr-page-lines">${skeletonBlock('112px',14)}${skeletonBlock('74px',8)}</div>${skeletonBlock('24px',24,'vr-page-icon')}`);
+    else top.innerHTML=skeletonBlock('28px',28,'vr-page-icon')+skeletonBlock('96px',14)+`<div class="vr-page-end">${skeletonBlock('22px',22,'vr-page-avatar')}${skeletonBlock('22px',22,'vr-page-avatar')}</div>`;
+    const body=document.createElement('div');body.className='vr-page-body'+(chat?' vr-page-chat-body':/^\/u\/|^\/profile\/edit|^\/likes|^\/browse/.test(path)?' vr-page-wide':'');
+    if(!chat&&path!=='/me')body.append(heading);
+    body.insertAdjacentHTML('beforeend',skeletonBody(path));
+    if(!auth)shell.append(top);else body.style.maxWidth='448px';
+    shell.append(body);document.body.append(shell);placeholder=shell;
+    if(chat){
+      // The pop preset also styles inputs. Measure the same one-row input
+      // classes, including their borders, rather than assuming a fixed height.
+      const field=document.createElement('textarea');field.rows=1;field.className='input max-h-32 min-h-[40px] flex-1 resize-none border-0 bg-transparent focus:ring-0';field.style.cssText='position:absolute;visibility:hidden;width:120px;pointer-events:none';shell.append(field);
+      body.style.setProperty('--vrcrp-compose-field-height',`${Math.max(40,field.getBoundingClientRect().height)}px`);field.remove();
+    }
+    if(path==='/discover'||path==='/'){const nav=document.querySelector('.app-bottom');body.style.setProperty('--vrcrp-placeholder-nav-height',`${nav?.getBoundingClientRect().height||74}px`);}
     document.documentElement.dataset.vrcrpPagePending='true';
+  }
+  function placeholderLayout(){
+    if(!placeholder)return null;
+    // UIKit draws this measured, themed DOM layout, rather than maintaining
+    // a second approximation of every route and every website preset.
+    const layers=[];
+    for(const el of placeholder.querySelectorAll('[data-vrcrp-shape]')){
+      const rect=box(el),style=getComputedStyle(el);if(rect.width<1||rect.height<1||rect.y>=innerHeight||rect.y+rect.height<=0)continue;
+      let clip={x:0,y:0,width:innerWidth,height:innerHeight};
+      for(let node=el.parentElement;node&&node!==placeholder;node=node.parentElement)if(['hidden','clip','auto','scroll'].includes(getComputedStyle(node).overflowY)){
+        const r=box(node),right=Math.min(clip.x+clip.width,r.x+r.width),bottom=Math.min(clip.y+clip.height,r.y+r.height);clip.x=Math.max(clip.x,r.x);clip.y=Math.max(clip.y,r.y);clip.width=Math.max(0,right-clip.x);clip.height=Math.max(0,bottom-clip.y);
+      }
+      const border=['Top','Right','Bottom','Left'].map(side=>({width:parseFloat(style['border'+side+'Width'])||0,color:rgba(style['border'+side+'Color'])}));
+      const layer={rect,clip,fill:rgba(style.backgroundColor),radius:['TopLeft','TopRight','BottomRight','BottomLeft'].map(c=>parseFloat(style['border'+c+'Radius'])||0),border};
+      const shadow=style.boxShadow.match(/^(rgba?\([^)]+\))\s+(-?[\d.]+)px\s+(-?[\d.]+)px\s+([\d.]+)px(?:\s+(-?[\d.]+)px)?$/);
+      if(shadow)layer.shadow={color:rgba(shadow[1]),x:Number(shadow[2]),y:Number(shadow[3]),blur:Number(shadow[4])};
+      if(el.dataset.vrcrpGlyph)layer.glyph=el.dataset.vrcrpGlyph;
+      if(el.classList.contains('vr-page-title')){layer.text=el.textContent;layer.fontSize=parseFloat(style.fontSize)||20;layer.weight=Number(style.fontWeight)||800;layer.ink=rgba(style.color);}
+      layers.push(layer);if(layers.length===120)break;
+    }
+    return {width:innerWidth,height:innerHeight,layers};
   }
   function clearPlaceholder(){
     placeholder?.remove();placeholder=null;presentation=null;
@@ -294,7 +406,7 @@
     const walker=document.createTreeWalker(main,NodeFilter.SHOW_TEXT);
     for(let n=0,node;(node=walker.nextNode())&&n<180;n++){
       const text=node.textContent.trim(),el=node.parentElement;
-      if(!text||!el||el.closest(loadingSelector+' ,h1,h2,[data-vrcrp-page-back],[data-vrcrp-chat-back],[data-vrcrp-back-strip],.chat-header,[data-vrcrp-chat-bar],.app-top,.app-bottom,script,style'))continue;
+      if(!text||!el||el.closest(loadingSelector+' ,h1,h2,[data-vrcrp-page-back],[data-vrcrp-chat-back],[data-vrcrp-back-strip],.chat-header,[data-vrcrp-chat-bar],.app-top,.app-bottom,#vrcrp-system-notifications,script,style'))continue;
       if(el.closest('button')&&!el.closest('li,article,.card,[role="listitem"]')&&main.querySelector(loadingSelector))continue;
       if(/^(?:正在)?(?:加载|载入|连接|缓冲|loading|connecting)(?:中|消息|资料|内容|页面)?[.。…\s]*$/i.test(text))continue;
       if(el.closest('[hidden],[aria-hidden="true"]')||!laidOut(el))continue;
@@ -405,7 +517,7 @@
     paintMemo=null;
     if(location.pathname!==lastPath||!ready)installPlaceholder(location.pathname);
     const theme=getComputedStyle(document.documentElement),surface=rgba('rgb('+ (theme.getPropertyValue('--surface').trim()||'255 255 255') +')'),canvas=rgba('rgb('+ (theme.getPropertyValue('--bg').trim()||'245 245 245') +')'),ink=rgba('rgb('+ (theme.getPropertyValue('--fg').trim()||'35 35 35') +')');
-    post({ kind: 'route', path: location.pathname, entryKey:entryKey(),parentKey:index>0?String(entryKeys[index-1]):null,parentPath:index>0?entries[index-1].split('?')[0]:null,ancestors:entryKeys.slice(Math.max(0,index-24),index),direction,showTabs: tabPages.has(location.pathname),title:pageTitle(location.pathname),surfaceColor:surface,canvasColor:canvas,inkColor:ink,canGoBack: index > 0 && !roots.has(location.pathname), refreshable: refreshable.has(location.pathname) });
+    post({ kind: 'route', path: location.pathname, entryKey:entryKey(),parentKey:index>0?String(entryKeys[index-1]):null,parentPath:index>0?entries[index-1].split('?')[0]:null,ancestors:entryKeys.slice(Math.max(0,index-24),index),direction,showTabs: tabPages.has(location.pathname),title:pageTitle(location.pathname),surfaceColor:surface,canvasColor:canvas,inkColor:ink,placeholderLayout:placeholderLayout(),canGoBack: index > 0 && !roots.has(location.pathname), refreshable: refreshable.has(location.pathname) });
     if (location.pathname === '/matches') window.__vrcrpSyncChats?.();
     window.__vrcrpSiteCache?.pageChanged?.();
     direction='none';
