@@ -8,7 +8,7 @@ mkdir -p "$ROOT/build/Simulator"
 cp -R "$ROOT/build/Payload/ERPStable.app" "$APP"
 xcrun --sdk iphonesimulator clang -arch "$ARCH" -isysroot "$SDK" \
   -mios-simulator-version-min=15.0 -fobjc-arc -O2 -DERP_TESTING=1 \
-  -framework UIKit -framework Foundation -framework WebKit -framework CoreGraphics -framework UserNotifications -framework SafariServices -framework ImageIO \
+  -framework UIKit -framework Foundation -framework WebKit -framework CoreGraphics -framework UserNotifications -framework SafariServices -framework ImageIO -framework Intents \
   "$ROOT/ERPStable/main.m" "$ROOT/ERPStable/ThemeNavigation.m" "$ROOT/ERPStable/ChatNotifications.m" "$ROOT/ERPStable/PageNavigation.m" "$ROOT/ERPStable/ExternalBrowser.m" -o "$APP/ERPStable"
 cp "$ROOT/scripts/layout-fixture.html" "$APP/layout-fixture.html"
 cp "$ROOT/scripts/navigation-fixture.html" "$APP/navigation-fixture.html"
@@ -92,7 +92,9 @@ for phase in ['first','reopened']:
     assert abs(data['chatHeight']-data['nativeHeight'])<1,data
     assert data['messageGap']<2 and data['lastMessageBottom']<=data['messagePaneBottom']+1,data
 content=json.loads((Path(sys.argv[1])/'notification-content.json').read_text())
-assert content['title']=='测试联系人' and content['subtitle']=='ID: peer-test-id' and content['body']=='测试消息内容',content
+assert content['title']=='测试联系人 · peer-test-id' and content['subtitle']=='ID: peer-test-id' and content['body']=='测试消息内容',content
+assert content['summaryHydrationAllowed'],content
+assert content['intentAvatar'] and content['intentSender']=='测试联系人 · peer-test-id',content
 assert content['attachmentCount']==1 and content['avatarWidth']==144 and content['avatarHeight']==144,content
 assert content['path']=='/matches/thread' and content['thread']=='thread' and content['sound'],content
 print('PASS: real simulator notification sender/ID/content/avatar attachment, keyboard first show/reopen, visible latest message and composer')

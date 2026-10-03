@@ -589,6 +589,12 @@ static UIView *ERPFocusedView(UIView *view) {
             if([key isKindOfClass:NSString.class]&&key.length<=180){[self.pageNavigation settled:key];if(!self.keyboardVisible&&!self.websiteOverlay&&!self.profileOverlay&&!self.rowPressed)[self.pageNavigation capture];}
         } else if ([kind isEqual:@"viewUpdated"]) {
             [self captureSnapshot];
+        } else if ([kind isEqualToString:@"testNotification"]) {
+            [self.chatNotifications sendTestNotification];
+        } else if ([kind isEqualToString:@"rankResult"]&&[body[@"body"] isKindOfClass:NSString.class]&&[body[@"body"] length]<1000) {
+            UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"我的榜单位置" message:body[@"body"] preferredStyle:UIAlertControllerStyleAlert];
+            [alert addAction:[UIAlertAction actionWithTitle:@"知道了" style:UIAlertActionStyleDefault handler:nil]];
+            if(!self.presentedViewController)[self presentViewController:alert animated:YES completion:nil];
         } else if ([kind isEqualToString:@"notificationSettings"]) {
             [UNUserNotificationCenter.currentNotificationCenter getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings *settings){
                 dispatch_async(dispatch_get_main_queue(),^{

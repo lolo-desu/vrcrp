@@ -16,8 +16,11 @@ targets:
       - path: ERPStable
         includes: ['*.js', '*.png', '*.storyboard']
         buildPhase: resources
+    dependencies:
+      - sdk: Intents.framework
     settings:
       base:
+        CODE_SIGN_ENTITLEMENTS: ERPStable/Communication.entitlements
         INFOPLIST_FILE: ERPStable/Info.plist
         TARGETED_DEVICE_FAMILY: '1,2'
       configs:

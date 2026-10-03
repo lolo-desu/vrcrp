@@ -4,7 +4,8 @@
   if (window !== window.top || location.origin !== 'https://erp.sex' || !bridge) return;
   const originalFetch = window.fetch, OriginalWebSocket = window.WebSocket;
   const seen = new Set(), matches = new Map();
-  const localEvents = new WeakSet();
+  const localEvents = new WeakSet(), hydration = new Map();
+  let detailRequested = false;
   let userId = '', unread = null, socket = null, active = true, busy = false;
   let pollTimer = null, fallbackTimer = null, lastDetailed = 0, sessionStarted = Date.now();
   let epoch = 0, controller = null, retryDelay = 0, syncAgain = false;
@@ -18,6 +19,7 @@
     if (message.type === 'voice') return '[语音]';
     if (message.type === 'vrc_link') return '[VRChat 链接]';
     if (message.type === 'system') return '有新的聊天动态';
+    if (message.type === 'notice') return message.text || '有新的聊天通知';
     return Array.from(typeof message.text === 'string' ? message.text : '你有新的聊天消息').slice(0,140).join('');
   }
   function peerInfo(peer) {
@@ -30,6 +32,7 @@
     remember(value.id);
     if (value.recalled || String(value.senderId) === userId) return;
     lastDetailed = Date.now(); clearTimeout(fallbackTimer);
+    detailRequested = false;
     if (active && !document.hidden && location.pathname === '/matches/' + value.matchId) return;
     const peer=matches.get(value.matchId)||{};
     post({ kind: 'chatMessage', messageId: value.id, matchId: value.matchId, senderId: String(value.senderId ?? ''), title: String(title || peer.title || '新聊天消息').slice(0,80), displayId:peer.displayId || String(value.senderId ?? ''), avatarURL:peer.avatarURL || '', body: body(value) });
@@ -42,7 +45,14 @@
     window.__vrcrpSiteCache?.commitCounters(value);
     if (increased && Date.now() - lastDetailed > 3000) {
       clearTimeout(fallbackTimer);
-      fallbackTimer = setTimeout(() => { if (Date.now() - lastDetailed > 3000) post({ kind: 'genericMessage', unread }); }, 2200);
+      detailRequested = true; schedule(0);
+      // Counts can arrive before the summary, or its lastMessage can omit id.
+      // Resolve real messages before considering a generic alert.
+      fallbackTimer = setTimeout(async () => {
+        const owner=epoch;
+        await Promise.allSettled([...matches].filter(([,peer])=>peer.unread>0).slice(0,8).map(([id])=>hydrate(id)));
+        if(owner===epoch && !busy && detailRequested && Date.now()-lastDetailed>3000)post({kind:'genericMessage',unread});
+      }, 2200);
     }
   }
   function session(value) {
@@ -50,7 +60,7 @@
     if (id === userId) { if (id) postSession(); return; }
     if (userId) socket = null;
     epoch++; controller?.abort();
-    userId = validId(id) ? id : ''; unread = null; window.__vrcrpChatUnread?.(0); seen.clear(); matches.clear(); sessionStarted = Date.now();
+    userId = validId(id) ? id : ''; unread = null; window.__vrcrpChatUnread?.(0); seen.clear(); matches.clear(); hydration.clear(); detailRequested=false; sessionStarted = Date.now();
     clearTimeout(fallbackTimer); clearTimeout(pollTimer);
     postSession(); if (userId) schedule(0);
   }
@@ -58,23 +68,50 @@
     window.__vrcrpSiteCache?.session(userId, requestHeaders);
     post({ kind: 'session', userId, mode: requestHeaders['X-Content-Mode'], language: requestHeaders['Accept-Language'] || navigator.language || 'en', userAgent: navigator.userAgent });
   }
+  function fingerprint(value) {
+    return value ? JSON.stringify([value.createdAt||'',value.senderId||'',value.type||'',value.text||'']) : '';
+  }
+  async function hydrate(id, limit=1) {
+    if(!validId(id)||!userId)return;
+    if(hydration.has(id))return hydration.get(id);
+    const owner=epoch, abort=new AbortController(), timer=setTimeout(()=>abort.abort(),12000);
+    const task=(async()=>{
+      const options={credentials:'include',cache:'no-store',headers:{...requestHeaders},signal:abort.signal};
+      const [detail,response]=await Promise.all([originalFetch.call(window,'/api/v1/matches/'+id,options),originalFetch.call(window,'/api/v1/matches/'+id+'/messages?limit=20',options)]);
+      if(owner!==epoch||!response.ok)return;
+      if(detail.ok){const value=unwrap(await detail.json());if(owner!==epoch)return;if(value?.user)matches.set(id,{...matches.get(id),...peerInfo(value.user)});}
+      const value=unwrap(await response.json());if(owner!==epoch||!Array.isArray(value?.items))return;
+      const peer=matches.get(id)||{};
+      const items=value.items.filter(m=>validId(m?.id)&&!m.recalled&&m.senderId!==userId&&!seen.has(m.id)).sort((a,b)=>String(a.createdAt).localeCompare(String(b.createdAt))||a.id.localeCompare(b.id));
+      const fresh=items.filter(m=>Date.parse(m.createdAt)>=sessionStarted || peer.changed && fingerprint(m)===peer.fingerprint);
+      // A known unread increase is also evidence when the phone clock differs.
+      const chosen=peer.delta>0?items.slice(-Math.min(peer.delta,20)):fresh.slice(-limit);
+      for(const m of chosen)message({...m,matchId:id});
+      if(peer.delta>0)matches.set(id,{...matches.get(id),delta:0,changed:false});
+    })().catch(()=>{}).finally(()=>{clearTimeout(timer);if(owner===epoch)hydration.delete(id);});
+    hydration.set(id,task);return task;
+  }
   function snapshot(value, state = 'active', firstPage = true) {
     if (!userId || !Array.isArray(value?.items)) return;
     const summaries = [];
     for (const item of value.items.slice(0,200)) {
       const id = String(item.id ?? ''), latest = item.lastMessage;
       if (!validId(id)) continue;
-      const info=peerInfo(item.user),title=info.title,prior=matches.get(id);
-      matches.set(id,{...info,messageId:latest?.id});
-      const created = Date.parse(latest?.createdAt);
-      if (latest?.id && prior && prior.messageId !== latest.id && item.unreadCount > 0) message({ ...latest, matchId: id }, title);
-      else if (latest?.id && !prior && Number.isFinite(created) && created >= sessionStarted && item.unreadCount > 0) message({ ...latest, matchId: id }, title);
-      if (latest?.id) remember(latest.id);
-      summaries.push({ matchId: id, ...info, messageId: latest?.id || '', unread: item.unreadCount || 0 });
+      const info=peerInfo(item.user),prior=matches.get(id),print=fingerprint(latest);
+      const hasBaseline=!!prior&&typeof prior.fingerprint==='string'&&Number.isSafeInteger(prior.unread);
+      const changed=hasBaseline&&print!==prior.fingerprint;
+      const delta=hasBaseline?Math.max(0,(item.unreadCount||0)-(prior.unread||0)):0;
+      matches.set(id,{...info,messageId:latest?.id,fingerprint:print,unread:item.unreadCount||0,delta:Math.max(delta,prior?.delta||0),changed:changed||prior?.changed});
+      const created=Date.parse(latest?.createdAt);
+      const fresh=latest&&item.unreadCount>0&&(changed||delta>0||!hasBaseline&&Number.isFinite(created)&&created>=sessionStarted);
+      if(fresh && validId(latest.id) && (latest.type!=='text'||typeof latest.text==='string'))message({...latest,matchId:id});
+      else if(fresh||detailRequested&&item.unreadCount>0)hydrate(id);
+      if(!fresh&&validId(latest?.id))remember(latest.id);
+      summaries.push({ matchId:id,...info,messageId:latest?.id||'',fingerprint:print,createdAt:latest?.createdAt||'',unread:item.unreadCount||0,baseline:!fresh });
     }
-    post({ kind: 'snapshot', items: summaries });
-    if (firstPage) window.__vrcrpSiteCache?.commitMatches(value, state);
-    if (firstPage && state === 'active') window.__vrcrpSiteCache?.warmList(value);
+    post({ kind:'snapshot',items:summaries });
+    if(firstPage)window.__vrcrpSiteCache?.commitMatches(value,state);
+    if(firstPage&&state==='active')window.__vrcrpSiteCache?.warmList(value);
   }
   window.__vrcrpDispatchServerEvent = (type,data) => {
     if (!socket) return false;
@@ -96,6 +133,7 @@
     try {
       const options = { credentials: 'include', cache: 'no-store', headers: requestHeaders, signal: controller.signal };
       const states = window.__vrcrpSiteCache?.states() || ['active'];
+      let nextCursor=null;
       const responses = await Promise.all([originalFetch.call(window,'/api/v1/me/counters',options),originalFetch.call(window,'/api/v1/matches?state=active',options),...(states.includes('unmatched')?[originalFetch.call(window,'/api/v1/matches?state=unmatched',options)]:[])]);
       if (owner !== epoch) return;
       if (responses.some(r => r.status === 401)) { session(null); return; }
@@ -107,9 +145,20 @@
           counters(value);
           if (!window.__vrcrpSiteCache?.commitCounters(value)) window.__vrcrpDispatchServerEvent('counters',value);
         } else {
-          if (i === 1) snapshot(value);
+          if (i === 1){snapshot(value);nextCursor=value?.nextCursor;}
           if (location.pathname === '/matches') refreshList(value,i===1?'active':'unmatched');
         }
+      }
+      await Promise.allSettled([...hydration.values()]);
+      const cursors=new Set();
+      // A new unread conversation may be beyond the summary's first page.
+      for(let page=0;detailRequested&&nextCursor&&page<6&&!cursors.has(nextCursor);page++){
+        cursors.add(nextCursor);
+        const r=await originalFetch.call(window,'/api/v1/matches?state=active&cursor='+encodeURIComponent(nextCursor),options);
+        if(owner!==epoch||!r.ok)break;
+        const value=unwrap(await r.json());if(owner!==epoch)break;
+        snapshot(value,'active',false);nextCursor=value?.nextCursor;
+        await Promise.allSettled([...hydration.values()]);
       }
       if (/^\/matches\/[^/]+$/.test(location.pathname)) window.__vrcrpSiteCache?.refreshChat().catch(()=>{});
     } catch { if(owner===epoch)retryDelay = 30000; } finally { busy = false; controller = null; clearTimeout(timeout); }
@@ -165,7 +214,7 @@
           const value = JSON.parse(event.data);
           window.__vrcrpSiteCache?.serverEvent(value.type,value.data);
           if (value.type === 'counters') counters(value.data);
-          else if (value.type === 'message.new') { message(value.data); if (location.pathname === '/matches') setTimeout(()=>refreshList(),0); schedule(150); }
+          else if (value.type === 'message.new') { if(!matches.get(value.data?.matchId)?.displayId && validId(value.data?.matchId)){const owner=epoch;hydrate(value.data.matchId).finally(()=>{if(owner===epoch)message(value.data);});}else message(value.data); if (location.pathname === '/matches') setTimeout(()=>refreshList(),0); schedule(150); }
           else if (['match.new','match.updated','match.closed','message.recalled','presence.updated','account.updated'].includes(value.type)) { if(location.pathname==='/matches')refreshList(); schedule(150); }
         } catch {} });
         connection.addEventListener('open',()=>schedule(0));

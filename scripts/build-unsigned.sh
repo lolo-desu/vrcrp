@@ -12,9 +12,10 @@ rm -rf "$APP"
 mkdir -p "$APP"
 xcrun --sdk iphoneos clang -arch arm64 -isysroot "$SDK" \
   -miphoneos-version-min=15.0 -fobjc-arc -O2 \
-  -framework UIKit -framework Foundation -framework WebKit -framework CoreGraphics -framework UserNotifications -framework SafariServices -framework ImageIO \
+  -framework UIKit -framework Foundation -framework WebKit -framework CoreGraphics -framework UserNotifications -framework SafariServices -framework ImageIO -framework Intents \
   -Wl,-no_adhoc_codesign "$ROOT/ERPStable/main.m" "$ROOT/ERPStable/ThemeNavigation.m" "$ROOT/ERPStable/ChatNotifications.m" "$ROOT/ERPStable/PageNavigation.m" "$ROOT/ERPStable/ExternalBrowser.m" -o "$APP/ERPStable"
 cp "$ROOT/ERPStable/Info.plist" "$APP/Info.plist"
+cp "$ROOT/ERPStable/Communication.entitlements" "$APP/Communication.entitlements"
 cp "$ROOT/ERPStable/interaction.js" "$APP/interaction.js"
 cp "$ROOT/ERPStable/notifications.js" "$APP/notifications.js"
 cp "$ROOT/ERPStable/keyboard.js" "$APP/keyboard.js"

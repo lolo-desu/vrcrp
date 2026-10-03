@@ -13,7 +13,7 @@ function fixture(){
  const window=new EventTarget();window.top=window;window.webkit={messageHandlers:{erpNativeApp:{postMessage(){}}}};
  const response=(v,status=200)=>new Response(JSON.stringify(v),{status,headers:{'Content-Type':'application/json'}});
  window.fetch=(input,options={})=>{
-  const url=new URL(input instanceof Request?input.url:String(input),location.href),method=options.method||input.method||'GET';requests.push({url:url.pathname,method});
+  const url=new URL(input instanceof Request?input.url:String(input),location.href),method=options.method||input.method||'GET';requests.push({url:url.pathname,search:url.search,headers:options.headers,method});
   const run=()=>{
    if(method!=='GET'){
     if(server.failure)return response({error:'failed'},500);
@@ -23,7 +23,7 @@ function fixture(){
     return response({ok:true});
    }
    const p=url.pathname;
-   const value=p.endsWith('/likes/received')?{items:server.received,nextCursor:null}:p.endsWith('/likes/sent')?{items:server.sent,nextCursor:null}:p.endsWith('/notifications')?{items:server.notifications,nextCursor:null}:p.endsWith('/posts')?{items:server.posts,nextCursor:null}:server.profile;
+   const value=p.endsWith('/browse')?(server.browsePages?.[url.searchParams.get('cursor')||'first']||{items:[],nextCursor:null}):p.endsWith('/likes/received')?{items:server.received,nextCursor:null}:p.endsWith('/likes/sent')?{items:server.sent,nextCursor:null}:p.endsWith('/notifications')?{items:server.notifications,nextCursor:null}:p.endsWith('/posts')?{items:server.posts,nextCursor:null}:server.profile;
    return response(clone(value));
   };
   const value=run();let promise;
@@ -31,7 +31,7 @@ function fixture(){
   window.lastNetworkPromise=promise;return promise;
  };
  class Clock extends Date{static now(){return Date.now()+offset;}}
- const context={window,document,location,navigator:{onLine:true},URL,Headers,Request,Response,AbortController,DOMException,Date:Clock,
+ const context={window,document,location,navigator:{onLine:true},URL,URLSearchParams,Headers,Request,Response,AbortController,DOMException,Date:Clock,
   setTimeout:(fn,delay)=>{const id=++timerID;timers.set(id,{fn,delay});return id},clearTimeout:id=>timers.delete(id)};
  vm.runInNewContext(fs.readFileSync(__dirname+'/../ERPStable/site-cache.js','utf8'),context);
  window.__vrcrpSiteCache.session('self',{'X-Content-Mode':'sfw','Accept-Language':'zh'});
@@ -85,6 +85,19 @@ const pages=items=>({pages:[{items,nextCursor:null}],pageParams:[null]});
  // Mutation response from an earlier account cannot affect the current one.
  f.hold(true);const late=f.get('/api/v1/likes/received');f.window.__vrcrpSiteCache.session('other');f.client.setQueryData(['me'],{id:'other'});f.hold(false);for(const release of f.held.splice(0))release();await late;await tick();
  assert.equal(f.timers.size,0);f.destroy();
- fs.mkdirSync(path.join(__dirname,'../build'),{recursive:true});fs.writeFileSync(path.join(__dirname,'../build/live-cache-verification.json'),JSON.stringify({queryCore:'5.104.1',checks:['fresh-query-refetch','successful-skip','failed-write','pagination-preserved','content-mode-isolation','stale-read-fence','cancel-sent-like','notification-read','request-coalescing','visible-page-polling','hidden-page-paused','resume-sync','editor-draft-source-preserved','account-isolation'],passed:true},null,2));
+ // Own position is a read-only lookup of the site's exact scoped hot list.
+ const rank=fixture(),rankKey=['m','sfw','zh','browse','hot',{languages:'zh',intents:'chat'}];
+ rank.query(rankKey,'/api/v1/browse?sort=hot',pages([{id:'cached-other'}]));
+ rank.server.browsePages={first:{items:[{id:'a'},{id:'b'}],nextCursor:'next'},next:{items:[{id:'b'},{id:'self'}],nextCursor:null}};
+ const position=await rank.window.__vrcrpSiteCache.ownBrowsePosition();assert.equal(position.position,3);
+ assert(rank.requests.filter(r=>r.url.endsWith('/browse')).every(r=>r.method==='GET'&&r.search.includes('sort=hot')&&r.search.includes('languages=zh')&&r.headers['X-Content-Mode']==='sfw'));
+ assert.equal(rank.client.getQueryData(rankKey).pages[0].items[0].id,'cached-other','lookup replaced the original list');
+ rank.server.browsePages={first:{items:[{id:'a'}],nextCursor:null}};
+ const absent=await rank.window.__vrcrpSiteCache.ownBrowsePosition();assert.equal(absent.position,null);assert.equal(absent.complete,true,'absence must remain unknown, not rank zero');
+ rank.server.browsePages={first:{items:[{id:'a'}],nextCursor:'loop'},loop:{items:[{id:'a'}],nextCursor:'loop'}};
+ const repeated=await rank.window.__vrcrpSiteCache.ownBrowsePosition();assert.equal(repeated.position,null);assert.equal(repeated.complete,false);assert.equal(repeated.checked,1);
+ rank.hold(true);const race=rank.window.__vrcrpSiteCache.ownBrowsePosition();await tick();rank.window.__vrcrpSiteCache.session('other');rank.hold(false);for(const release of rank.held.splice(0))release();await assert.rejects(race,/账号/);
+ rank.destroy();
+ fs.mkdirSync(path.join(__dirname,'../build'),{recursive:true});fs.writeFileSync(path.join(__dirname,'../build/live-cache-verification.json'),JSON.stringify({queryCore:'5.104.1',checks:['fresh-query-refetch','successful-skip','failed-write','pagination-preserved','content-mode-isolation','stale-read-fence','cancel-sent-like','notification-read','request-coalescing','visible-page-polling','hidden-page-paused','resume-sync','editor-draft-source-preserved','account-isolation','rank-scoped-read-only','rank-no-fabricated-absence','rank-cursor-loop','rank-account-race'],passed:true},null,2));
  console.log('PASS: real QueryCore fresh refetch, successful/failed operations, loaded pages, mode isolation, stale-read race, sent-like/read patches, request coalescing, visible polling/resume and account isolation');
 })().catch(error=>{console.error(error);process.exitCode=1});

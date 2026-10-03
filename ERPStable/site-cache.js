@@ -358,7 +358,35 @@
     if (warmCount) return;
     warmCount = 1; value.items.slice(0,3).forEach(item => prefetch(item.id));
   }
+  async function ownBrowsePosition() {
+    if(!user)throw new Error('请先登录。');
+    const c=client(),q=c?.getQueryCache().getAll().find(q=>scoped(q)&&observed(q)&&family(q)==='browse');
+    if(!q)throw new Error('榜单仍在加载，请稍后重试。');
+    const sort=q.queryKey[4],filters=q.queryKey[5];
+    if(sort!=='hot')throw new Error('请先切换到热度排序。');
+    const owner=epoch,mode=headers['X-Content-Mode'],language=headers['Accept-Language'];
+    const abort=new AbortController();ownedControllers.add(abort);
+    const timer=setTimeout(()=>abort.abort(),20000),visited=new Set(),ids=new Set();
+    let cursor=null,count=0,complete=false;
+    try{
+      for(let page=0;page<6;page++){
+        const params=new URLSearchParams({sort:'hot',limit:'24'});
+        if(filters&&typeof filters==='object')for(const [key,value]of Object.entries(filters))if(value!=null&&value!==false&&value!=='')params.set(key,Array.isArray(value)?value.join(','):String(value));
+        if(cursor)params.set('cursor',cursor);
+        const response=await network.call(window,'/api/v1/browse?'+params,{credentials:'include',cache:'no-store',headers:{...headers},signal:abort.signal});
+        if(owner!==epoch||mode!==headers['X-Content-Mode']||language!==headers['Accept-Language'])throw new Error('账号或筛选环境已改变，请重新查询。');
+        if(!response.ok)throw new Error(response.status===429?'查询过于频繁，请稍后再试。':'暂时无法读取榜单，请稍后重试。');
+        const value=unwrap(await response.json());
+        if(owner!==epoch||mode!==headers['X-Content-Mode']||language!==headers['Accept-Language'])throw new Error('账号或筛选环境已改变，请重新查询。');
+        if(!Array.isArray(value?.items))throw new Error('网站返回了无法识别的榜单。');
+        for(const item of value.items){if(!idOK(item?.id)||ids.has(item.id))continue;ids.add(item.id);count++;if(item.id===user)return {position:count,checked:count,complete:false};}
+        cursor=value.nextCursor;if(!cursor){complete=true;break;}if(typeof cursor!=='string'||visited.has(cursor))break;visited.add(cursor);
+      }
+      return {position:null,checked:count,complete};
+    }finally{clearTimeout(timer);ownedControllers.delete(abort);}
+  }
   window.__vrcrpSiteCache = {
+    ownBrowsePosition,
     session(id, nextHeaders) { reset(id); if (nextHeaders) configure(nextHeaders); },
     active(value) { active = value === true;if(!active){clearTimeout(pollTimer);clearTimeout(refreshTimer);pollTimer=refreshTimer=0;}else{queueRefresh(pageFamilies,Date.now()-1500,true);armPoll();} }, commitCounters, commitMatches, refreshList, warmList, prefetch, serverEvent,
     pageChanged(){if(foreground()){armPoll();}},

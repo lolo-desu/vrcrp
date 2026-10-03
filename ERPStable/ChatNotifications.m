@@ -2,6 +2,7 @@
 #import <UIKit/UIKit.h>
 #import <UserNotifications/UserNotifications.h>
 #import <ImageIO/ImageIO.h>
+#import <Intents/Intents.h>
 
 static BOOL VRValidID(id value) {
     return [value isKindOfClass:NSString.class] && [value length]>0 && [value length]<=120 &&
@@ -12,6 +13,11 @@ static NSString *VRText(id value, NSUInteger limit, NSString *fallback) {
     NSString *text=value;
     if (text.length>limit) text=[text substringWithRange:[text rangeOfComposedCharacterSequencesForRange:NSMakeRange(0,limit)]];
     return text;
+}
+static NSString *VRFingerprint(NSDictionary *last) {
+    if(![last isKindOfClass:NSDictionary.class])return @"";
+    NSArray *parts=@[VRText(last[@"createdAt"],80,@""),VRText(last[@"senderId"],120,@""),VRText(last[@"type"],80,@""),VRText(last[@"text"],100000,@"")];
+    return [[NSString alloc] initWithData:[NSJSONSerialization dataWithJSONObject:parts options:NSJSONWritingWithoutEscapingSlashes error:nil] encoding:NSUTF8StringEncoding]?:@"";
 }
 @interface ChatNotifications ()
 @property(nonatomic, strong) WKHTTPCookieStore *store;
@@ -62,6 +68,7 @@ static NSString *VRText(id value, NSUInteger limit, NSString *fallback) {
     NSString *path=[@"/matches/" stringByAppendingString:matchID];
     if(UIApplication.sharedApplication.applicationState==UIApplicationStateActive&&[self.activePath isEqual:path])return;
     [UNUserNotificationCenter.currentNotificationCenter removePendingNotificationRequestsWithIdentifiers:@[@"vrcrp-unread"]];
+    [UNUserNotificationCenter.currentNotificationCenter removeDeliveredNotificationsWithIdentifiers:@[@"vrcrp-unread"]];
     [self notifyMessage:event path:path identifier:[@"vrcrp-message-" stringByAppendingString:messageID] thread:matchID];
 }
 - (NSData *)avatarData:(NSData *)data {
@@ -103,11 +110,20 @@ static NSString *VRText(id value, NSUInteger limit, NSString *fallback) {
         CGSize size=[initial sizeWithAttributes:attributes];[initial drawAtPoint:CGPointMake((144-size.width)/2,(144-size.height)/2) withAttributes:attributes];
     }];return UIImagePNGRepresentation(image);
 }
+- (INSendMessageIntent *)communicationIntent:(NSDictionary *)event path:(NSString *)path avatar:(NSData *)avatar {
+    NSString *sender=VRText(event[@"displayId"],120,VRText(event[@"senderId"],120,@"unknown"));
+    NSString *name=VRText(event[@"title"],80,@"聊天联系人");
+    NSString *label=[NSString stringWithFormat:@"%@ · %@",name,sender];
+    INImage *image=[INImage imageWithImageData:avatar?:[self initialAvatar:name]];
+    INPerson *person=[[INPerson alloc] initWithPersonHandle:[[INPersonHandle alloc] initWithValue:sender type:INPersonHandleTypeUnknown] nameComponents:nil displayName:label image:image contactIdentifier:nil customIdentifier:sender];
+    INSendMessageIntent *intent=[[INSendMessageIntent alloc] initWithRecipients:nil outgoingMessageType:INOutgoingMessageTypeOutgoingMessageText content:VRText(event[@"body"],180,@"你有新的聊天消息") speakableGroupName:nil conversationIdentifier:path serviceName:@"vrcrp" sender:person attachments:nil];
+    [intent setImage:image forParameterNamed:@"sender"];return intent;
+}
 - (UNMutableNotificationContent *)messageContent:(NSDictionary *)event path:(NSString *)path thread:(NSString *)thread avatar:(NSData *)avatar {
     UNMutableNotificationContent *content=[UNMutableNotificationContent new];
     content.title=VRText(event[@"title"],80,@"新聊天消息");content.body=VRText(event[@"body"],180,@"你有新的聊天消息");
     NSString *displayID=VRText(event[@"displayId"],120,VRText(event[@"senderId"],120,@""));
-    if(displayID.length)content.subtitle=[@"ID: " stringByAppendingString:displayID];
+    if(displayID.length){content.subtitle=[@"ID: " stringByAppendingString:displayID];content.title=[NSString stringWithFormat:@"%@ · %@",content.title,displayID];}
     content.sound=UNNotificationSound.defaultSound;if(self.unread>=0)content.badge=@(self.unread);
     content.threadIdentifier=thread;content.categoryIdentifier=@"VRCRP_CHAT";content.userInfo=@{@"path":path};
     NSData *picture=avatar?:[self initialAvatar:content.title];
@@ -116,7 +132,19 @@ static NSString *VRText(id value, NSUInteger limit, NSString *fallback) {
         UNNotificationAttachment *attachment=[UNNotificationAttachment attachmentWithIdentifier:@"sender-avatar" URL:file options:@{UNNotificationAttachmentOptionsThumbnailHiddenKey:@NO} error:nil];
         if(attachment)content.attachments=@[attachment];
         if(!attachment)[NSFileManager.defaultManager removeItemAtURL:file error:nil];
-    }return content;
+    }
+    // Communication presentation uses the sender photo rather than only an
+    // attachment thumbnail. Keep the standard attachment when signing or the
+    // system does not permit communication notifications.
+    INSendMessageIntent *intent=[self communicationIntent:event path:path avatar:picture];
+    NSError *error=nil;UNNotificationContent *updated=[content contentByUpdatingWithProvider:intent error:&error];
+    if(updated&&!error){
+        UNMutableNotificationContent *rich=[updated mutableCopy];
+        rich.title=content.title;rich.subtitle=content.subtitle;rich.body=content.body;
+        rich.attachments=content.attachments;rich.userInfo=content.userInfo;rich.categoryIdentifier=content.categoryIdentifier;rich.threadIdentifier=content.threadIdentifier;
+        content=rich;
+    }
+    return content;
 }
 - (void)notifyMessage:(NSDictionary *)event path:(NSString *)path identifier:(NSString *)identifier thread:(NSString *)thread {
     NSUInteger generation=self.generation;
@@ -127,11 +155,24 @@ static NSString *VRText(id value, NSUInteger limit, NSString *fallback) {
             void (^deliver)(NSData *)=^(NSData *avatar){
                 if(finished||generation!=self.generation||!self.authenticated)return;finished=YES;
                 if(UIApplication.sharedApplication.applicationState==UIApplicationStateActive&&[self.activePath isEqual:path])return;
+                INInteraction *interaction=[[INInteraction alloc] initWithIntent:[self communicationIntent:event path:path avatar:avatar] response:nil];interaction.direction=INInteractionDirectionIncoming;
+                [interaction donateInteractionWithCompletion:^(NSError *error){}];
                 UNMutableNotificationContent *content=[self messageContent:event path:path thread:thread avatar:avatar];
                 [UNUserNotificationCenter.currentNotificationCenter addNotificationRequest:[UNNotificationRequest requestWithIdentifier:identifier content:content trigger:nil] withCompletionHandler:nil];
             };
             [self loadAvatar:event[@"avatarURL"] completion:deliver];
             dispatch_after(dispatch_time(DISPATCH_TIME_NOW,750*NSEC_PER_MSEC),dispatch_get_main_queue(),^{deliver(nil);});
+        });
+    }];
+}
+- (void)sendTestNotification {
+    [UNUserNotificationCenter.currentNotificationCenter requestAuthorizationWithOptions:UNAuthorizationOptionAlert|UNAuthorizationOptionSound|UNAuthorizationOptionBadge completionHandler:^(BOOL granted,NSError *error){
+        if(!granted)return;
+        dispatch_async(dispatch_get_main_queue(),^{
+            NSDictionary *event=@{@"title":@"通知测试",@"displayId":@"vrcrp-test",@"senderId":@"vrcrp-test",@"body":@"这里是消息正文，头像和 ID 应与此条通知一起显示。"};
+            UNMutableNotificationContent *content=[self messageContent:event path:@"/matches" thread:@"vrcrp-test" avatar:nil];
+            INInteraction *interaction=[[INInteraction alloc] initWithIntent:[self communicationIntent:event path:@"/matches" avatar:nil] response:nil];interaction.direction=INInteractionDirectionIncoming;[interaction donateInteractionWithCompletion:^(NSError *error){}];
+            [UNUserNotificationCenter.currentNotificationCenter addNotificationRequest:[UNNotificationRequest requestWithIdentifier:@"vrcrp-preview-test" content:content trigger:[UNTimeIntervalNotificationTrigger triggerWithTimeInterval:1 repeats:NO]] withCompletionHandler:nil];
         });
     }];
 }
@@ -167,6 +208,10 @@ static NSString *VRText(id value, NSUInteger limit, NSString *fallback) {
             if([value isKindOfClass:NSString.class]&&value.length<600&&[value rangeOfCharacterFromSet:NSCharacterSet.newlineCharacterSet].location==NSNotFound)
                 headers[[key isEqual:@"language"]?@"Accept-Language":@"User-Agent"]=value;
         }
+        if(self.headers.count&&![self.headers isEqual:headers]){
+            self.generation++;[self.latest removeAllObjects];self.started=NSDate.date;
+            [self.avatars removeAllObjects];[self.avatarWaiters removeAllObjects];
+        }
         self.headers=headers;
     } else if([kind isEqual:@"counters"]&&[event[@"unread"] isKindOfClass:NSNumber.class]) [self updateBadge:[event[@"unread"] integerValue]];
     else if([kind isEqual:@"chatMessage"]) [self deliver:event];
@@ -174,8 +219,8 @@ static NSString *VRText(id value, NSUInteger limit, NSString *fallback) {
         [self notifyTitle:@"vrcrp" body:@"你有新的聊天消息" path:@"/matches" identifier:@"vrcrp-unread" thread:@"vrcrp-unread"];
     } else if([kind isEqual:@"snapshot"]&&[event[@"items"] isKindOfClass:NSArray.class]) {
         if([event[@"items"] count]>200)return;
-        for(id item in event[@"items"]) if([item isKindOfClass:NSDictionary.class]&&VRValidID(item[@"matchId"])&&VRValidID(item[@"messageId"])) {
-            self.latest[item[@"matchId"]]=item[@"messageId"]; [self remember:item[@"messageId"]];
+        for(id item in event[@"items"]) if([item isKindOfClass:NSDictionary.class]&&VRValidID(item[@"matchId"])) {
+            self.latest[item[@"matchId"]]=@{@"messageId":item[@"messageId"]?:@"",@"fingerprint":item[@"fingerprint"]?:@"",@"unread":item[@"unread"]?:@0}; if(![item[@"baseline"] isEqual:@NO]&&VRValidID(item[@"messageId"])) [self remember:item[@"messageId"]];
         }
         NSUInteger generation=self.generation;
         [UNUserNotificationCenter.currentNotificationCenter getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings *settings){
@@ -202,6 +247,41 @@ static NSString *VRText(id value, NSUInteger limit, NSString *fallback) {
         UIBackgroundTaskIdentifier task=self.backgroundTask; self.backgroundTask=UIBackgroundTaskInvalid;
         [UIApplication.sharedApplication endBackgroundTask:task];
     }
+}
+- (void)deliverBackgroundMessage:(NSDictionary *)last item:(NSDictionary *)item {
+    if([last[@"recalled"] isEqual:@YES]||!VRValidID(last[@"id"])||!VRValidID(item[@"id"]))return;
+    NSString *body=VRText(last[@"text"],180,@"你有新的聊天消息");
+    if([last[@"type"] isEqual:@"image"])body=@"[图片]";
+    if([last[@"type"] isEqual:@"voice"])body=@"[语音]";
+    if([last[@"type"] isEqual:@"vrc_link"])body=@"[VRChat 链接]";
+    NSDictionary *peer=[item[@"user"] isKindOfClass:NSDictionary.class]?item[@"user"]:@{};
+    NSDictionary *media=[peer[@"avatar"] isKindOfClass:NSDictionary.class]?peer[@"avatar"]:@{};
+    NSString *avatar=[media[@"view"] isEqual:@"show"]?VRText(media[@"thumbUrl"],4096,VRText(media[@"url"],4096,@"")):@"";
+    [self deliver:@{@"messageId":last[@"id"],@"matchId":item[@"id"],@"senderId":last[@"senderId"]?:@"",@"displayId":VRText(peer[@"id"],120,VRText(last[@"senderId"],120,@"")),@"avatarURL":avatar,@"title":VRText(peer[@"displayName"],80,@"新聊天消息"),@"body":body}];
+}
+- (void)hydrateBackgroundMatch:(NSDictionary *)item request:(NSURLRequest *)request delta:(NSInteger)delta changed:(BOOL)changed generation:(NSUInteger)generation {
+    NSMutableURLRequest *detail=[request mutableCopy];
+    detail.URL=[NSURL URLWithString:[NSString stringWithFormat:@"https://erp.sex/api/v1/matches/%@/messages?limit=20",item[@"id"]]];
+    [[self.session dataTaskWithRequest:detail completionHandler:^(NSData *data,NSURLResponse *response,NSError *error){
+        id raw=data?[NSJSONSerialization JSONObjectWithData:data options:0 error:nil]:nil;
+        dispatch_async(dispatch_get_main_queue(),^{
+            if(generation!=self.generation||self.backgroundTask==UIBackgroundTaskInvalid||error||[(NSHTTPURLResponse *)response statusCode]!=200||![raw isKindOfClass:NSDictionary.class])return;
+            id value=[raw[@"data"] isKindOfClass:NSDictionary.class]?raw[@"data"]:raw;
+            if(![value[@"items"] isKindOfClass:NSArray.class])return;
+            NSMutableArray *candidates=[NSMutableArray new];
+            NSISO8601DateFormatter *formatter=[NSISO8601DateFormatter new];
+            for(id message in value[@"items"])if([message isKindOfClass:NSDictionary.class]&&VRValidID(message[@"id"])&&![self.seen containsObject:message[@"id"]]&&![message[@"senderId"] isEqual:self.userID]&&![message[@"recalled"] isEqual:@YES]){
+                formatter.formatOptions=NSISO8601DateFormatWithInternetDateTime|NSISO8601DateFormatWithFractionalSeconds;
+                NSDate *created=[formatter dateFromString:VRText(message[@"createdAt"],80,@"")];
+                if(!created){formatter.formatOptions=NSISO8601DateFormatWithInternetDateTime;created=[formatter dateFromString:VRText(message[@"createdAt"],80,@"")];}
+                BOOL fresh=created&&[created compare:self.started]!=NSOrderedAscending;
+                if(delta>0||fresh||changed&&[VRFingerprint(message) isEqual:VRFingerprint(item[@"lastMessage"])])[candidates addObject:message];
+            }
+            [candidates sortUsingComparator:^NSComparisonResult(NSDictionary *a,NSDictionary *b){return [VRText(a[@"createdAt"],80,@"") compare:VRText(b[@"createdAt"],80,@"")];}];
+            NSUInteger limit=delta>0?MIN(20,delta):1,start=candidates.count>limit?candidates.count-limit:0;
+            for(NSDictionary *message in [candidates subarrayWithRange:NSMakeRange(start,candidates.count-start)])[self deliverBackgroundMessage:message item:item];
+        });
+    }] resume];
 }
 - (void)backgroundPoll {
     if(self.backgroundTask==UIBackgroundTaskInvalid||!self.authenticated||self.requesting)return;
@@ -236,23 +316,21 @@ static NSString *VRText(id value, NSUInteger limit, NSString *fallback) {
                     NSInteger count=[item[@"unreadCount"] isKindOfClass:NSNumber.class]?MAX(0,[item[@"unreadCount"] integerValue]):0;
                     unread+=count;
                     id last=item[@"lastMessage"]; NSString *matchID=item[@"id"];
-                    if(![last isKindOfClass:NSDictionary.class]||!VRValidID(matchID)||!VRValidID(last[@"id"]))continue;
-                    NSString *previous=self.latest[matchID]; self.latest[matchID]=last[@"id"];
-                    NSISO8601DateFormatter *formatter=[NSISO8601DateFormatter new]; formatter.formatOptions=NSISO8601DateFormatWithInternetDateTime|NSISO8601DateFormatWithFractionalSeconds;
-                    NSString *timestamp=VRText(last[@"createdAt"],80,@"");
+                    if(!VRValidID(matchID))continue;
+                    NSDictionary *previous=self.latest[matchID];
+                    NSString *print=VRFingerprint(last);
+                    self.latest[matchID]=@{@"messageId":[last isKindOfClass:NSDictionary.class]?last[@"id"]?:@"":@"",@"fingerprint":print,@"unread":@(count)};
+                    NSInteger delta=previous?MAX(0,count-[previous[@"unread"] integerValue]):0;
+                    BOOL changed=previous&&![print isEqual:previous[@"fingerprint"]];
+                    NSISO8601DateFormatter *formatter=[NSISO8601DateFormatter new];formatter.formatOptions=NSISO8601DateFormatWithInternetDateTime|NSISO8601DateFormatWithFractionalSeconds;
+                    NSString *timestamp=[last isKindOfClass:NSDictionary.class]?VRText(last[@"createdAt"],80,@""):@"";
                     NSDate *created=[formatter dateFromString:timestamp];
                     if(!created){formatter.formatOptions=NSISO8601DateFormatWithInternetDateTime;created=[formatter dateFromString:timestamp];}
-                    BOOL newMessage=previous?![previous isEqual:last[@"id"]]:(created&&[created compare:self.started]!=NSOrderedAscending);
-                    if(newMessage&&count>0&&![last[@"recalled"] isEqual:@YES]){
-                        NSString *body=VRText(last[@"text"],180,@"你有新的聊天消息");
-                        if([last[@"type"] isEqual:@"image"])body=@"[图片]";
-                        if([last[@"type"] isEqual:@"voice"])body=@"[语音]";
-                        if([last[@"type"] isEqual:@"vrc_link"])body=@"[VRChat 链接]";
-                        NSDictionary *peer=[item[@"user"] isKindOfClass:NSDictionary.class]?item[@"user"]:@{};
-                        NSDictionary *media=[peer[@"avatar"] isKindOfClass:NSDictionary.class]?peer[@"avatar"]:@{};
-                        NSString *avatar=[media[@"view"] isEqual:@"show"]?VRText(media[@"thumbUrl"],4096,VRText(media[@"url"],4096,@"")):@"";
-                        [self deliver:@{@"messageId":last[@"id"],@"matchId":matchID,@"senderId":last[@"senderId"]?:@"",@"displayId":VRText(peer[@"id"],120,VRText(last[@"senderId"],120,@"")),@"avatarURL":avatar,@"title":VRText(peer[@"displayName"],80,@"新聊天消息"),@"body":body}];
-                    } else [self remember:last[@"id"]];
+                    BOOL recent=created&&[created compare:self.started]!=NSOrderedAscending;
+                    if(count>0&&(changed||delta>0||!previous&&recent)){
+                        if([last isKindOfClass:NSDictionary.class]&&VRValidID(last[@"id"])&&(![last[@"type"] isEqual:@"text"]||[last[@"text"] isKindOfClass:NSString.class]))[self deliverBackgroundMessage:last item:item];
+                        else [self hydrateBackgroundMatch:item request:request delta:delta changed:changed generation:generation];
+                    }else if([last isKindOfClass:NSDictionary.class]&&VRValidID(last[@"id"]))[self remember:last[@"id"]];
                 }
                 // This response may be paginated: do not replace the account's
                 // total badge with the first page's partial count.
@@ -268,7 +346,12 @@ static NSString *VRText(id value, NSUInteger limit, NSString *fallback) {
     UNMutableNotificationContent *content=[self messageContent:event path:@"/matches/thread" thread:@"thread" avatar:avatar];
     UNNotificationAttachment *attachment=content.attachments.firstObject;
     UIImage *image=attachment?[UIImage imageWithContentsOfFile:attachment.URL.path]:nil;
-    return @{@"title":content.title,@"subtitle":content.subtitle,@"body":content.body,@"attachmentCount":@(content.attachments.count),@"avatarWidth":@(image.size.width),@"avatarHeight":@(image.size.height),@"thread":content.threadIdentifier,@"path":content.userInfo[@"path"],@"sound":@(content.sound!=nil)};
+    NSString *hydratedID=@"peer-hydrated-test";
+    [self handleEvent:@{@"kind":@"snapshot",@"items":@[@{@"matchId":@"hydrated-thread",@"messageId":hydratedID,@"fingerprint":@"summary",@"unread":@1,@"baseline":@NO}]}];
+    BOOL baselineAllowsHydration=![self.seen containsObject:hydratedID];
+    [self.latest removeObjectForKey:@"hydrated-thread"];
+    INSendMessageIntent *intent=[self communicationIntent:event path:@"/matches/thread" avatar:avatar];
+    return @{@"summaryHydrationAllowed":@(baselineAllowsHydration),@"intentSender":intent.sender.displayName?:@"",@"intentAvatar":@(intent.sender.image!=nil),@"title":content.title,@"subtitle":content.subtitle,@"body":content.body,@"attachmentCount":@(content.attachments.count),@"avatarWidth":@(image.size.width),@"avatarHeight":@(image.size.height),@"thread":content.threadIdentifier,@"path":content.userInfo[@"path"],@"sound":@(content.sound!=nil)};
 }
 #endif
 @end
