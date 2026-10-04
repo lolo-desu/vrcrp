@@ -175,7 +175,7 @@ stages={s:json.loads((Path(sys.argv[1])/f'navigation-{s}.json').read_text()) for
 for name,data in stages.items():
  print(name,data)
  assert 'error' not in data and data['documentLoads']==1 and data['webEnabled'] and data['alpha']==1,data
-cold=stages['cold-entry'];assert cold['backAllowed'] and cold['backEnabled'] and not cold['previewCached'] and cold['elapsed']<1.2,cold
+cold=stages['cold-entry'];assert cold['coldReadyOnFirstRoute'] and cold['backAllowed'] and cold['backEnabled'] and not cold['previewCached'],cold
 assert stages['interrupted-push']['began'] and stages['interrupted-push']['interactive'],stages['interrupted-push']
 assert stages['cancelled']['draft']=='快速返回草稿' and not stages['cancelled']['transitioning'],stages['cancelled']
 for phase in ['keyboard-preview','keyboard-cancel']:

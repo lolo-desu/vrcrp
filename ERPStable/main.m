@@ -144,6 +144,8 @@ static UIView *ERPFocusedView(UIView *view) {
 #if ERP_TESTING
 @property(nonatomic) NSTimeInterval verifyNavigationStarted;
 @property(nonatomic) BOOL verifyGestureBegan;
+@property(nonatomic) BOOL verifyColdEntryArmed;
+@property(nonatomic) BOOL verifyColdEntryReady;
 @property(nonatomic) NSUInteger documentLoads;
 @property(nonatomic,strong) NSDictionary *surfaceWebState;
 #endif
@@ -628,6 +630,15 @@ static UIView *ERPFocusedView(UIView *view) {
             [self restoreNavigation];
             self.refreshable=[body[@"refreshable"] isEqual:@YES];
             self.web.scrollView.refreshControl=nil;self.web.scrollView.bounces=NO;self.web.scrollView.alwaysBounceVertical=NO;[self updateBackAvailability];
+#if ERP_TESTING
+            // Check the first delivered cold-page route synchronously. A loaded
+            // CI host may stall before evaluating the navigation request; that
+            // queue delay must not substitute for testing the return gate.
+            if(self.verifyColdEntryArmed&&[path isEqual:@"/matches/thread"]){
+                self.verifyColdEntryArmed=NO;
+                self.verifyColdEntryReady=self.canGoBack&&self.edgeBack.enabled&&!self.pageNavigation.canPreviewParent&&[self canStartBackAtPoint:CGPointMake(12,180) velocity:CGPointMake(700,0)];
+            }
+#endif
             if ([[NSSet setWithArray:@[@"/discover",@"/likes",@"/matches",@"/posts",@"/me"]] containsObject:path]) [NSUserDefaults.standardUserDefaults setObject:path forKey:@"VRLastTab"];
             [self captureSnapshot];
         }
@@ -876,7 +887,7 @@ static UIView *ERPFocusedView(UIView *view) {
     ];[self runVerifySteps:steps index:0 deadline:0];
 }
 - (void)captureNavigation:(NSString *)phase completion:(dispatch_block_t)done {
-    NSMutableDictionary *data=[@{@"phase":phase,@"elapsed":@(NSDate.timeIntervalSinceReferenceDate-self.verifyNavigationStarted),@"keyboard":@(self.keyboardVisible),@"backEnabled":@(self.edgeBack.enabled),@"backAllowed":@([self canStartBackAtPoint:CGPointMake(12,180) velocity:CGPointMake(700,0)]),@"began":@(self.verifyGestureBegan),@"previewCached":@(self.pageNavigation.canPreviewParent),@"transitioning":@(self.pageNavigation.transitioning),@"interactive":@(self.pageNavigation.interactive),@"webEnabled":@(self.web.userInteractionEnabled),@"alpha":@(self.web.alpha),@"translation":@(self.web.transform.tx),@"documentLoads":@(self.documentLoads)} mutableCopy];
+    NSMutableDictionary *data=[@{@"phase":phase,@"elapsed":@(NSDate.timeIntervalSinceReferenceDate-self.verifyNavigationStarted),@"coldReadyOnFirstRoute":@(self.verifyColdEntryReady),@"keyboard":@(self.keyboardVisible),@"backEnabled":@(self.edgeBack.enabled),@"backAllowed":@([self canStartBackAtPoint:CGPointMake(12,180) velocity:CGPointMake(700,0)]),@"began":@(self.verifyGestureBegan),@"previewCached":@(self.pageNavigation.canPreviewParent),@"transitioning":@(self.pageNavigation.transitioning),@"interactive":@(self.pageNavigation.interactive),@"webEnabled":@(self.web.userInteractionEnabled),@"alpha":@(self.web.alpha),@"translation":@(self.web.transform.tx),@"documentLoads":@(self.documentLoads)} mutableCopy];
     [self.web evaluateJavaScript:@"({path:location.pathname,index:history.state?.idx,draft:document.querySelector('textarea')?.value||'',focused:document.activeElement===document.querySelector('textarea'),cycles:window.navigationCycles||0})" completionHandler:^(id result,NSError *error){
         if([result isKindOfClass:NSDictionary.class])[data addEntriesFromDictionary:result];if(error)data[@"error"]=error.localizedDescription;
         NSURL *directory=[NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask].firstObject;
@@ -889,7 +900,7 @@ static UIView *ERPFocusedView(UIView *view) {
     dispatch_block_t begin=^{self.verifyGestureBegan=[self.pageNavigation beginInteractive];[self.pageNavigation updateInteractive:self.web.bounds.size.width*.45];};
     NSArray *steps=@[
         step(@"",@"!!window.__fixtureOpen&&location.pathname==='/matches'",^{},^BOOL(void){return !self.pageNavigation.transitioning&&!self.bottomNav.hidden;}),
-        step(@"cold-entry",@"location.pathname==='/matches/thread'",^{[self.pageNavigation clear];self.verifyNavigationStarted=NSDate.timeIntervalSinceReferenceDate;[self verifyJavaScript:@"__fixtureOpen('/matches/thread');document.querySelector('textarea').value='快速返回草稿'"];},^BOOL(void){return self.canGoBack&&[self canStartBackAtPoint:CGPointMake(12,180) velocity:CGPointMake(700,0)];}),
+        step(@"cold-entry",@"location.pathname==='/matches/thread'",^{[self.pageNavigation clear];self.verifyColdEntryArmed=YES;self.verifyColdEntryReady=NO;self.verifyNavigationStarted=NSDate.timeIntervalSinceReferenceDate;[self verifyJavaScript:@"__fixtureOpen('/matches/thread');document.querySelector('textarea').value='快速返回草稿'"];},^BOOL(void){return self.canGoBack&&[self canStartBackAtPoint:CGPointMake(12,180) velocity:CGPointMake(700,0)];}),
         step(@"interrupted-push",@"location.pathname==='/matches/thread'",begin,^BOOL(void){return self.verifyGestureBegan&&self.pageNavigation.interactive;}),
         step(@"cancelled",@"location.pathname==='/matches/thread'&&document.querySelector('textarea').value==='快速返回草稿'",^{[self.pageNavigation finishInteractive:self.web.bounds.size.width*.45 velocity:-700 cancelled:NO];},stable),
         step(@"",@"document.activeElement===document.querySelector('textarea')",^{[self verifyJavaScript:@"document.querySelector('textarea').focus()"];},^BOOL(void){return self.keyboardVisible;}),
