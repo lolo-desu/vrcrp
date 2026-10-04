@@ -1,5 +1,5 @@
 """Serve simulator fixtures over HTTP so WebKit has real session history."""
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 import json,time
@@ -44,4 +44,6 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-HTTPServer(('127.0.0.1',18765),Handler).serve_forever()
+# WebKit and NSURLSession can reserve an idle connection before opening their
+# next request. A single-threaded server would block every active request on it.
+ThreadingHTTPServer(('127.0.0.1',18765),Handler).serve_forever()

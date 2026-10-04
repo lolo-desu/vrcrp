@@ -122,7 +122,9 @@ final class GestureChecks: XCTestCase {
         app.links["外链测试"].tap()
         let next=app.links["Next page"]
         XCTAssertTrue(next.waitForExistence(timeout:8));next.tap()
-        XCTAssertTrue(app.staticTexts["External B"].firstMatch.waitForExistence(timeout:8))
+        let externalLoaded=app.staticTexts["External B"].firstMatch.waitForExistence(timeout:15)
+        if !externalLoaded { print("External navigation hierarchy: "+app.debugDescription) }
+        XCTAssertTrue(externalLoaded)
         externalEdgeDrag(0.92)
         XCTAssertTrue(app.staticTexts["External A"].firstMatch.waitForExistence(timeout:5))
         XCTAssertTrue(app.buttons["关闭外部网站"].exists,"History swipe closed the browser")
@@ -142,6 +144,11 @@ final class AppPreferenceChecks: XCTestCase {
     func awaitReport(_ predicate:@escaping ([String:Any])->Bool,timeout:TimeInterval=12) {
         expectation(for:NSPredicate { _,_ in predicate(self.report()) },evaluatedWith:app)
         waitForExpectations(timeout:timeout)
+    }
+    func paletteChoice(_ name:String) -> XCUIElement {
+        // WebKit exposes an aria-pressed button as a toggle on some iOS builds.
+        // Match its accessible name across native AX control types.
+        app.descendants(matching:.any).matching(NSPredicate(format:"label == %@",name)).firstMatch
     }
     func testBackgroundListenerBeyondShortGraceAndLogout() {
         app.launchArguments=["--verify-background"];app.launch()
@@ -173,19 +180,21 @@ final class AppPreferenceChecks: XCTestCase {
     }
     func testPalettesUpdateNativeNavigationAndRestoreWebsite() {
         app.launchArguments=["--verify-preferences"];app.launch()
-        XCTAssertTrue(app.buttons["Mono"].waitForExistence(timeout:15))
+        let choicesReady=paletteChoice("Mono").waitForExistence(timeout:15)
+        if !choicesReady { print("Palette UI hierarchy: "+app.debugDescription);print("Palette report: "+String(describing:report())) }
+        XCTAssertTrue(choicesReady)
         for (name,id) in [("Mono","mono"),("海盐蓝","blue"),("苔绿","green"),("莓紫","purple"),("暖橙","orange"),("樱粉","pink")] {
-            app.buttons[name].tap()
+            paletteChoice(name).tap()
             awaitReport { value in
                 guard let primary=value["primary"] as? [Double],let native=value["nativeSelection"] as? [String:Any],let foreground=native["foreground"] as? [Double],let tint=value["nativeTint"] as? [Double] else{return false}
                 return (value["palette"] as? String)==id && primary.count==3 && foreground.count==3 && tint.count==3 && zip(primary,foreground).allSatisfy{abs($0.0/255-$0.1)<0.002} && zip(primary,tint).allSatisfy{abs($0.0-$0.1)<0.5}
             }
         }
-        app.buttons["Mono"].tap();app.buttons["切换深色测试"].tap()
+        paletteChoice("Mono").tap();app.buttons["切换深色测试"].tap()
         awaitReport { value in guard let background=value["background"] as? [Double],let status=value["nativeStatus"] as? [Double] else{return false};return (value["palette"] as? String)=="mono" && (value["dark"] as? Bool)==true && (background.max() ?? 255)<30 && status.count==3 && Set(status).count==1 }
         app.terminate();app.launch()
         awaitReport { $0["palette"] as? String=="mono" }
-        app.buttons["官网原样"].tap()
+        paletteChoice("官网原样").tap()
         awaitReport { $0["palette"] as? String=="default" && ($0["background"] as? [Int])==[255,235,117] }
     }
 }

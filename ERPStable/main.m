@@ -150,6 +150,7 @@ static UIView *ERPFocusedView(UIView *view) {
 @property(nonatomic,strong) NSDictionary *surfaceWebState;
 @property(nonatomic,strong) UILabel *preferenceReport;
 @property(nonatomic,strong) NSMutableArray *backgroundJournal;
+@property(nonatomic) BOOL verifyFeedbackDeparted;
 #endif
 @end
 
@@ -674,6 +675,9 @@ static UIView *ERPFocusedView(UIView *view) {
             self.refreshable=[body[@"refreshable"] isEqual:@YES];
             self.web.scrollView.refreshControl=nil;self.web.scrollView.bounces=NO;self.web.scrollView.alwaysBounceVertical=NO;[self updateBackAvailability];
 #if ERP_TESTING
+            // Observe the actual push presentation, rather than a 64 ms timer
+            // that can run after feedback has expired on a busy CI host.
+            if(!self.verifyFeedbackDeparted&&[NSProcessInfo.processInfo.arguments containsObject:@"--verify-feedback"]&&[path isEqual:@"/matches/thread"]&&[direction isEqual:@"push"]){self.verifyFeedbackDeparted=YES;[self writeFeedbackReport:@"departing"];}
             // Check the first delivered cold-page route synchronously. A loaded
             // CI host may stall before evaluating the navigation request; that
             // queue delay must not substitute for testing the return gate.
@@ -763,7 +767,8 @@ static UIView *ERPFocusedView(UIView *view) {
 #if ERP_TESTING
 - (void)setPreferenceVerificationReport:(NSDictionary *)report {
     if(!self.preferenceReport){self.preferenceReport=[UILabel new];self.preferenceReport.frame=CGRectMake(8,self.view.bounds.size.height-140,self.view.bounds.size.width-16,18);self.preferenceReport.text=@"模拟器检查报告";self.preferenceReport.font=[UIFont systemFontOfSize:9];self.preferenceReport.accessibilityIdentifier=@"vrcrp-preference-report";self.preferenceReport.isAccessibilityElement=YES;self.preferenceReport.userInteractionEnabled=NO;[self.view addSubview:self.preferenceReport];}
-    NSData *data=[NSJSONSerialization dataWithJSONObject:report options:0 error:nil];self.preferenceReport.accessibilityLabel=[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    NSData *data=[NSJSONSerialization dataWithJSONObject:report options:NSJSONWritingSortedKeys error:nil];NSString *label=[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    if([self.preferenceReport.accessibilityLabel isEqual:label])return;self.preferenceReport.accessibilityLabel=label;
     NSURL *directory=[NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask].firstObject;
     [data writeToURL:[directory URLByAppendingPathComponent:@"preference-state.json"] atomically:YES];
 }
@@ -840,7 +845,6 @@ static UIView *ERPFocusedView(UIView *view) {
             NSString *script=@"(()=>{window.fixtureSlowChat=true;const row=document.querySelector('[data-vrcrp-chat-row]'),r=row.getBoundingClientRect(),args={bubbles:true,button:0,isPrimary:true,pointerType:'touch',clientX:r.x+20,clientY:r.y+20};row.dispatchEvent(new PointerEvent('pointerdown',args));row.dispatchEvent(new PointerEvent('pointerup',args));row.click();})()";
             [self.web evaluateJavaScript:script completionHandler:^(id ignored,NSError *error){
                 if(error){[self writeFeedbackFailure:error.localizedDescription];return;}
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW,64*NSEC_PER_MSEC),dispatch_get_main_queue(),^{[self writeFeedbackReport:@"departing"];});
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW,400*NSEC_PER_MSEC),dispatch_get_main_queue(),^{[self writeFeedbackReport:@"cold-chat"];});
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW,1600*NSEC_PER_MSEC),dispatch_get_main_queue(),^{[self.web evaluateJavaScript:@"window.__vrcrpBack()" completionHandler:^(id value,NSError *error){[self verifyFeedbackReturned:0];}];});
             }];
