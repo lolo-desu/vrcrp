@@ -177,8 +177,8 @@ final class AppPreferenceChecks: XCTestCase {
         for (name,id) in [("Mono","mono"),("海盐蓝","blue"),("苔绿","green"),("莓紫","purple"),("暖橙","orange"),("樱粉","pink")] {
             app.buttons[name].tap()
             awaitReport { value in
-                guard let primary=value["primary"] as? [Double],let native=value["nativeSelection"] as? [String:Any],let foreground=native["foreground"] as? [Double] else{return false}
-                return (value["palette"] as? String)==id && primary.count==3 && foreground.count==3 && zip(primary,foreground).allSatisfy{abs($0.0/255-$0.1)<0.002}
+                guard let primary=value["primary"] as? [Double],let native=value["nativeSelection"] as? [String:Any],let foreground=native["foreground"] as? [Double],let tint=value["nativeTint"] as? [Double] else{return false}
+                return (value["palette"] as? String)==id && primary.count==3 && foreground.count==3 && tint.count==3 && zip(primary,foreground).allSatisfy{abs($0.0/255-$0.1)<0.002} && zip(primary,tint).allSatisfy{abs($0.0-$0.1)<0.5}
             }
         }
         app.buttons["Mono"].tap();app.buttons["切换深色测试"].tap()

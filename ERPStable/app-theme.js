@@ -118,7 +118,7 @@
   function select(id){if(!palettes.some(p=>p.id===id))return false;selected=id;try{localStorage.setItem(storageKey,id);}catch{}apply();return true;}
   function updateBackground(){
     const button=document.getElementById('vrcrp-background-switch'),status=document.getElementById('vrcrp-background-status');if(!button)return;
-    const checked=String(background?.enabled===true);if(button.getAttribute('aria-checked')!==checked)button.setAttribute('aria-checked',checked);button.removeAttribute('aria-busy');
+    const checked=String(background?.enabled===true);if(button.getAttribute('aria-checked')!==checked)button.setAttribute('aria-checked',checked);
     const description=background?.description||'正在获取监听状态';const text=description+(background?.networkRetry?' · 网络重试中':'');if(status.textContent!==text)status.textContent=text;
   }
   function updateSettings(){
@@ -143,12 +143,12 @@
       const button=document.createElement('button');button.id='vrcrp-background-switch';button.type='button';button.className='vrcrp-background-switch';button.setAttribute('role','switch');button.setAttribute('aria-label','后台监听（实验）');button.setAttribute('aria-checked',String(background?.enabled===true));
       button.addEventListener('click',()=>{if(button.getAttribute('aria-busy')==='true')return;button.setAttribute('aria-busy','true');post({kind:'backgroundListening',enabled:button.getAttribute('aria-checked')!=='true'});setTimeout(()=>{if(button.isConnected&&button.hasAttribute('aria-busy')){button.removeAttribute('aria-busy');post({kind:'backgroundStatus'});}},2000);});
       const note=document.createElement('p');note.className='mt-2 text-sm text-muted';note.textContent='离开 App 后尝试继续接收消息，可能增加耗电。手动划掉 App 后停止。';
-      const status=document.createElement('p');status.id='vrcrp-background-status';status.className='vrcrp-background-status';status.setAttribute('role','status');row.append(name,button);host.append(row,note,status);
+      const status=document.createElement('p');status.id='vrcrp-background-status';status.className='vrcrp-background-status';status.setAttribute('aria-live','polite');row.append(name,button);host.append(row,note,status);
       post({kind:'backgroundStatus'});
     }
     updateBackground();
   }
-  window.__vrcrpBackgroundState=value=>{if(value&&typeof value.enabled==='boolean'){background=value;updateBackground();}};
+  window.__vrcrpBackgroundState=value=>{if(value&&typeof value.enabled==='boolean'){background=value;document.getElementById('vrcrp-background-switch')?.removeAttribute('aria-busy');updateBackground();}};
   window.__vrcrpPreferencesUpdate=updateSettings;
   window.__vrcrpTheme={select,current:()=>selected,palettes:()=>palettes.map(({id,name})=>({id,name}))};
   new MutationObserver(schedule).observe(root,{attributes:true,attributeFilter:['style','class','data-scheme','data-theme','data-preset']});

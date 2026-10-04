@@ -572,13 +572,14 @@ static UIView *ERPFocusedView(UIView *view) {
                 [NSUserDefaults.standardUserDefaults setObject:body[@"background"] forKey:@"VRThemeBackground"];
             }
             if([body[@"surface"] isKindOfClass:NSArray.class]&&[body[@"surface"] count]==4){UIColor *surface=VRColor(body[@"surface"],self.statusBarSurface.backgroundColor);[self applyStatusColor:surface];self.web.backgroundColor=surface;self.web.scrollView.backgroundColor=surface;}
-            if([body[@"primary"] isKindOfClass:NSArray.class]&&[body[@"primary"] count]==4){self.loadingCover.tintColor=VRColor(body[@"primary"],self.loadingCover.tintColor);[NSUserDefaults.standardUserDefaults setObject:body[@"primary"] forKey:@"VRThemeAccent"];}
+            if([body[@"primary"] isKindOfClass:NSArray.class]&&[body[@"primary"] count]==4){UIColor *accent=VRColor(body[@"primary"],self.loadingCover.tintColor);self.loadingCover.tintColor=accent;self.view.tintColor=accent;self.view.window.tintColor=accent;[NSUserDefaults.standardUserDefaults setObject:body[@"primary"] forKey:@"VRThemeAccent"];}
             return;
         }
 #if ERP_TESTING
         if([kind isEqual:@"verifyPreferenceReport"]&&([NSProcessInfo.processInfo.arguments containsObject:@"--verify-preferences"]||[NSProcessInfo.processInfo.arguments containsObject:@"--verify-background"])){
             NSMutableDictionary *report=[body mutableCopy];report[@"nativeSelection"]=[self.bottomNav verifySelection];report[@"backgroundState"]=[self.chatNotifications verifyBackgroundState];report[@"journal"]=[self.backgroundJournal copy]?:@[];
             CGFloat r=0,g=0,b=0,a=1;[self.statusBarSurface.backgroundColor getRed:&r green:&g blue:&b alpha:&a];report[@"nativeStatus"]=@[@(r*255),@(g*255),@(b*255)];
+            [self.view.window.tintColor getRed:&r green:&g blue:&b alpha:&a];report[@"nativeTint"]=@[@(r*255),@(g*255),@(b*255)];
             [self setPreferenceVerificationReport:report];return;
         }
         if([kind isEqual:@"verifyGestureReport"]&&[NSProcessInfo.processInfo.arguments containsObject:@"--verify-gestures"]){
@@ -1220,6 +1221,7 @@ static UIView *ERPFocusedView(UIView *view) {
 @implementation AppDelegate
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)options {
     self.window = [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
+    self.window.tintColor=VRColor([NSUserDefaults.standardUserDefaults objectForKey:@"VRThemeAccent"],UIColor.systemBlueColor);
     self.window.rootViewController = [BrowserController new];
     [self.window makeKeyAndVisible];
     return YES;
