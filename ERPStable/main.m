@@ -537,6 +537,9 @@ static UIView *ERPFocusedView(UIView *view) {
     if ([message.name isEqualToString:@"erpNativeApp"]) {
         NSString *kind=body[@"kind"];
 #if ERP_TESTING
+        if([kind isEqual:@"verifyGestureReport"]&&[NSProcessInfo.processInfo.arguments containsObject:@"--verify-gestures"]){
+            NSLog(@"Gesture trace JS %@ native key=%@ overlay=%d profile=%d handoff=%d transitioning=%d",body,self.pageNavigation.currentKey,self.websiteOverlay,self.profileOverlay,self.pageNavigation.handoff,self.pageNavigation.transitioning);return;
+        }
         if([kind isEqual:@"verifySnapshotStall"]&&[self.web isKindOfClass:ERPVerificationWebView.class]){
             ((ERPVerificationWebView *)self.web).stallSnapshot=YES;return;
         }

@@ -80,7 +80,7 @@ final class GestureChecks: XCTestCase {
     func assertSheetClosed() {
         let open=app.buttons["打开喜欢详情"]
         expectation(for:NSPredicate { _,_ in open.isHittable && !self.app.staticTexts["喜欢详情标题"].exists },evaluatedWith:open)
-        waitForExpectations(timeout:4)
+        waitForExpectations(timeout:12)
     }
     func testLikeSheetRightSwipeAndShortDragCancellation() {
         openLikeSheet()

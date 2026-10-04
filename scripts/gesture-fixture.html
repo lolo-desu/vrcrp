@@ -29,4 +29,6 @@ host.querySelector('.sheet-header button').onclick=close;host.querySelector('.sh
 host.querySelector('.sheet-body').onscroll=()=>{host.querySelector('.sheet-report').textContent='弹层滚动 '+Math.round(host.querySelector('.sheet-body').scrollTop)};
 document.body.appendChild(host);}
 window.addEventListener('popstate',render);window.addEventListener('scroll',()=>{const el=document.getElementById('scroll-status');if(el)el.textContent='页面滚动 '+Math.round(window.scrollY)},{passive:true});render();
+function gestureReport(event){setTimeout(()=>webkit?.messageHandlers?.erpNativeApp?.postMessage({kind:'verifyGestureReport',event,href:location.href,key:window.__vrcrpEntryKey?.(),closed:sheetCloses,dialogs:document.querySelectorAll('[role="dialog"]').length,paint:window.__vrcrpPaintState?.(),placeholder:document.getElementById('vrcrp-page-placeholder')?.outerHTML.slice(0,180)||'',panels:[...document.querySelectorAll('.dialog-panel')].map(p=>({transform:getComputedStyle(p).transform,top:p.getBoundingClientRect().top,body:p.querySelector('[data-dialog-body]')?.scrollTop})),main:document.getElementById('main').textContent.slice(0,140)}),500)}
+for(const type of ['touchstart','touchend','touchcancel','popstate'])window.addEventListener(type,()=>gestureReport(type),{passive:true});
 </script></body></html>

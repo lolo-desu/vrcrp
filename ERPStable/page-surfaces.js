@@ -23,8 +23,9 @@
     if(next===sheet)return;
     restoreSheet(sheetGesture);restoreSheet(sheetMotion);sheetGesture=null;sheetMotion=null;
     sheet?.removeEventListener('touchmove',moveSheetTouches,true);
+    sheet?.firstElementChild?.removeAttribute('data-vrcrp-sheet-handle');
     sheet?.removeAttribute('data-vrcrp-dismissible-sheet');sheet=next;
-    if(sheet){sheet.dataset.vrcrpDismissibleSheet='true';sheet.addEventListener('touchmove',moveSheetTouches,{capture:true,passive:false});}
+    if(sheet){sheet.dataset.vrcrpDismissibleSheet='true';sheet.firstElementChild.dataset.vrcrpSheetHandle='true';sheet.addEventListener('touchmove',moveSheetTouches,{capture:true,passive:false});}
     window.__vrcrpRefreshGestureZones?.();
   }
   function blockedSheetTarget(target,panel,x,y){
@@ -115,6 +116,7 @@
   window.addEventListener('blur',()=>{restoreSheet(sheetGesture);restoreSheet(sheetMotion);sheetGesture=null;sheetMotion=null;});
   const backIcon='<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="m15 5-7 7 7 7"/></svg>';
   const css=`
+    [data-vrcrp-sheet-handle],[data-vrcrp-sheet-handle] *{touch-action:none!important;-webkit-user-select:none!important;user-select:none!important;-webkit-touch-callout:none!important}
     html[data-vrcrp-top-level="false"] .app-top{display:none!important}
     html[data-vrcrp-profile-open="true"] .app-top{visibility:hidden!important}
     html[data-vrcrp-chat-toolbar="true"] .app-top{display:none!important}

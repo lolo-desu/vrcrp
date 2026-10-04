@@ -10,7 +10,7 @@ class Handler(BaseHTTPRequestHandler):
             body=b'ok'
         elif url.path.startswith('/external/'):
             name='A' if url.path.endswith('/a') else 'B'
-            body=(f'<html><head><title>External {name}</title></head><body><h1>External {name}</h1><a href="/external/b">Next page</a></body></html>').encode()
+            body=(f'<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><title>External {name}</title><style>body{{font:18px system-ui;padding:16px}}a{{display:inline-block;min-height:44px;padding:14px 18px;background:#eee;border-radius:12px}}</style></head><body><h1>External {name}</h1><a href="/external/b">Next page</a></body></html>').encode()
         else:
             fixture='layout-fixture.html' if parse_qs(url.query).get('fixture')==['layout'] else 'navigation-fixture.html'
             if parse_qs(url.query).get('fixture')==['gestures']:fixture='gesture-fixture.html'

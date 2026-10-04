@@ -37,6 +37,12 @@
 @property(nonatomic) BOOL observing;
 @property(nonatomic,strong) UIScreenEdgePanGestureRecognizer *edgeBack;
 @property(nonatomic,strong) UIPercentDrivenInteractiveTransition *edgeReturn;
+@property(nonatomic,strong) NSCache<WKBackForwardListItem *,UIImage *> *historyImages;
+@property(nonatomic,strong) WKBackForwardListItem *historyTarget;
+@property(nonatomic,strong) UIView *historyFront;
+@property(nonatomic,strong) UIImageView *historyBack;
+@property(nonatomic) BOOL historyCommitted;
+@property(nonatomic) NSUInteger historyGeneration;
 @end
 @implementation ExternalBrowser
 - (instancetype)initWithRequest:(NSURLRequest *)request surface:(UIColor *)surface {
@@ -54,7 +60,8 @@
     self.overrideUserInterfaceStyle=(.2126*r+.7152*g+.0722*b<.5)?UIUserInterfaceStyleDark:UIUserInterfaceStyleLight;
     WKWebViewConfiguration *config=[WKWebViewConfiguration new];config.websiteDataStore=WKWebsiteDataStore.defaultDataStore;config.allowsInlineMediaPlayback=YES;
     self.web=[[WKWebView alloc] initWithFrame:CGRectZero configuration:config];self.web.navigationDelegate=self;self.web.UIDelegate=self;
-    self.web.allowsBackForwardNavigationGestures=YES;self.web.translatesAutoresizingMaskIntoConstraints=NO;
+    self.web.allowsBackForwardNavigationGestures=NO;self.web.translatesAutoresizingMaskIntoConstraints=NO;
+    self.historyImages=[NSCache new];self.historyImages.countLimit=6;self.historyImages.totalCostLimit=32*1024*1024;
     self.bar=[UIView new];self.bar.backgroundColor=self.surface;self.bar.translatesAutoresizingMaskIntoConstraints=NO;
     self.backButton=[self button:@"chevron.left" title:@"返回" action:@selector(back:)];
     self.forwardButton=[self button:@"chevron.right" title:@"前进" action:@selector(forward:)];
@@ -84,9 +91,8 @@
     self.pageLabel.text=self.web.title.length?self.web.title:([url.scheme isEqual:@"https"]?@"安全连接":@"网站浏览");
     self.backButton.enabled=YES;self.backButton.accessibilityLabel=self.web.canGoBack?@"返回上一个网站页面":@"返回应用";
     self.forwardButton.enabled=self.web.canGoForward;self.progress.progress=self.web.estimatedProgress;self.progress.hidden=!self.web.loading;
-    // WebKit owns interactive history traversal. Only the first external page
-    // uses our gesture, which dismisses to the still-mounted app underneath.
-    if(self.edgeBack.state==UIGestureRecognizerStatePossible)self.edgeBack.enabled=!self.web.canGoBack;
+    // One edge recognizer owns both website history and returning to the app.
+    // Do not depend on WebKit's competing navigation/selection recognizers.
 }
 - (void)viewDidAppear:(BOOL)animated { [super viewDidAppear:animated];[self update]; }
 - (id<UIViewControllerAnimatedTransitioning>)animationControllerForPresentedController:(UIViewController *)presented presentingController:(UIViewController *)presenting sourceController:(UIViewController *)source {
@@ -96,7 +102,46 @@
 - (id<UIViewControllerInteractiveTransitioning>)interactionControllerForDismissal:(id<UIViewControllerAnimatedTransitioning>)animator { return self.edgeReturn; }
 - (BOOL)gestureRecognizerShouldBegin:(UIGestureRecognizer *)gesture {
     CGPoint velocity=[self.edgeBack velocityInView:self.view];
-    return !self.web.canGoBack&&!self.presentedViewController&&!self.isBeingDismissed&&velocity.x>fabs(velocity.y)*1.15;
+    return !self.historyFront&&!self.presentedViewController&&!self.isBeingDismissed&&velocity.x>fabs(velocity.y)*1.15;
+}
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gesture shouldBeRequiredToFailByGestureRecognizer:(UIGestureRecognizer *)other {
+    return gesture==self.edgeBack&&other==self.web.scrollView.panGestureRecognizer;
+}
+- (void)clearHistoryPresentation {
+    self.historyGeneration++;[self.historyFront removeFromSuperview];[self.historyBack removeFromSuperview];self.historyFront=nil;self.historyBack=nil;self.historyTarget=nil;self.historyCommitted=NO;self.web.scrollView.scrollEnabled=YES;
+}
+- (void)captureHistoryPage {
+    WKBackForwardListItem *item=self.web.backForwardList.currentItem;if(!item)return;
+    NSUInteger owner=self.historyGeneration;
+    WKSnapshotConfiguration *config=[WKSnapshotConfiguration new];config.afterScreenUpdates=YES;
+    [self.web takeSnapshotWithConfiguration:config completionHandler:^(UIImage *image,NSError *error){
+        if(!image||item!=self.web.backForwardList.currentItem)return;
+        [self.historyImages setObject:image forKey:item cost:(NSUInteger)(image.size.width*image.size.height*image.scale*image.scale*4)];
+        if(self.historyCommitted)[self clearHistoryPresentation];
+    }];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,450*NSEC_PER_MSEC),dispatch_get_main_queue(),^{if(owner==self.historyGeneration&&self.historyCommitted&&item==self.web.backForwardList.currentItem&&!self.web.loading)[self clearHistoryPresentation];});
+}
+- (void)beginHistoryReturn {
+    WKBackForwardListItem *target=self.web.backForwardList.backItem;if(!target)return;
+    [self.web endEditing:YES];self.historyTarget=target;self.historyCommitted=NO;self.historyGeneration++;
+    self.historyBack=[[UIImageView alloc] initWithImage:[self.historyImages objectForKey:target]];self.historyBack.frame=self.web.frame;self.historyBack.backgroundColor=self.surface;self.historyBack.contentMode=UIViewContentModeScaleToFill;
+    if(!self.historyBack.image){UIActivityIndicatorView *wait=[[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];wait.center=CGPointMake(self.historyBack.bounds.size.width/2,self.historyBack.bounds.size.height/2);[wait startAnimating];[self.historyBack addSubview:wait];}
+    self.historyFront=[self.web snapshotViewAfterScreenUpdates:NO]?:[UIView new];self.historyFront.frame=self.web.frame;self.historyFront.backgroundColor=self.surface;
+    self.historyBack.userInteractionEnabled=NO;self.historyFront.userInteractionEnabled=NO;
+    [self.view insertSubview:self.historyBack aboveSubview:self.web];[self.view insertSubview:self.historyFront aboveSubview:self.historyBack];self.web.scrollView.scrollEnabled=NO;
+}
+- (void)updateHistoryReturn:(CGFloat)progress {
+    CGFloat width=self.web.bounds.size.width;self.historyFront.transform=CGAffineTransformMakeTranslation(progress*width,0);self.historyBack.transform=CGAffineTransformMakeTranslation(-.27*width*(1-progress),0);
+}
+- (void)finishHistoryReturn:(CGFloat)progress velocity:(CGFloat)velocity cancelled:(BOOL)cancelled {
+    BOOL commit=!cancelled&&self.historyTarget==self.web.backForwardList.backItem&&velocity>-150&&(progress+velocity*.16/MAX(1,self.web.bounds.size.width)>.36||velocity>700&&progress>.04);
+    NSUInteger owner=self.historyGeneration;
+    [UIView animateWithDuration:.2 delay:0 options:UIViewAnimationOptionCurveEaseOut|UIViewAnimationOptionAllowUserInteraction animations:^{[self updateHistoryReturn:commit?1:0];} completion:^(BOOL finished){
+        if(owner!=self.historyGeneration)return;
+        if(!commit){[self clearHistoryPresentation];return;}
+        self.historyCommitted=YES;[self.web goToBackForwardListItem:self.historyTarget];
+        // Keep the cached parent visible until WebKit has painted the result.
+    }];
 }
 - (void)beginEdgeReturn {
     if(self.web.canGoBack||self.edgeReturn||self.isBeingDismissed)return;
@@ -111,15 +156,15 @@
 }
 - (void)edgeReturnGesture:(UIScreenEdgePanGestureRecognizer *)gesture {
     CGFloat progress=MAX(0,MIN(1,[gesture translationInView:self.view].x/MAX(1,self.view.bounds.size.width)));
-    if(gesture.state==UIGestureRecognizerStateBegan)[self beginEdgeReturn];
-    if(gesture.state==UIGestureRecognizerStateBegan||gesture.state==UIGestureRecognizerStateChanged)[self.edgeReturn updateInteractiveTransition:progress];
-    else if(gesture.state==UIGestureRecognizerStateEnded||gesture.state==UIGestureRecognizerStateCancelled||gesture.state==UIGestureRecognizerStateFailed)[self finishEdgeReturn:progress velocity:[gesture velocityInView:self.view].x cancelled:gesture.state!=UIGestureRecognizerStateEnded];
+    if(gesture.state==UIGestureRecognizerStateBegan){if(self.web.canGoBack)[self beginHistoryReturn];else[self beginEdgeReturn];}
+    if(gesture.state==UIGestureRecognizerStateBegan||gesture.state==UIGestureRecognizerStateChanged){if(self.historyFront)[self updateHistoryReturn:progress];else[self.edgeReturn updateInteractiveTransition:progress];}
+    else if(gesture.state==UIGestureRecognizerStateEnded||gesture.state==UIGestureRecognizerStateCancelled||gesture.state==UIGestureRecognizerStateFailed){if(self.historyFront)[self finishHistoryReturn:progress velocity:[gesture velocityInView:self.view].x cancelled:gesture.state!=UIGestureRecognizerStateEnded];else[self finishEdgeReturn:progress velocity:[gesture velocityInView:self.view].x cancelled:gesture.state!=UIGestureRecognizerStateEnded];}
 }
 - (BOOL)prefersStatusBarHidden { return NO; }
 - (UIStatusBarStyle)preferredStatusBarStyle { return self.overrideUserInterfaceStyle==UIUserInterfaceStyleDark?UIStatusBarStyleLightContent:UIStatusBarStyleDarkContent; }
-- (void)back:(id)sender { if(self.web.canGoBack)[self.web goBack];else[self close:sender]; }
-- (void)forward:(id)sender { if(self.web.canGoForward)[self.web goForward]; }
-- (void)close:(id)sender { [self.web stopLoading];[self dismissViewControllerAnimated:YES completion:nil]; }
+- (void)back:(id)sender { [self clearHistoryPresentation];if(self.web.canGoBack)[self.web goBack];else[self close:sender]; }
+- (void)forward:(id)sender { [self clearHistoryPresentation];if(self.web.canGoForward)[self.web goForward]; }
+- (void)close:(id)sender { [self clearHistoryPresentation];[self.web stopLoading];[self dismissViewControllerAnimated:YES completion:nil]; }
 - (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)action decisionHandler:(void (^)(WKNavigationActionPolicy))reply {
     NSURL *url=action.request.URL;BOOL main=action.targetFrame.isMainFrame||!action.targetFrame;
     BOOL internal=[url.host.lowercaseString isEqual:@"erp.sex"];
@@ -132,6 +177,7 @@
 }
 - (WKWebView *)webView:(WKWebView *)webView createWebViewWithConfiguration:(WKWebViewConfiguration *)configuration forNavigationAction:(WKNavigationAction *)action windowFeatures:(WKWindowFeatures *)features { if(!action.targetFrame)[webView loadRequest:action.request];return nil; }
 - (void)showError:(NSError *)error {
+    [self clearHistoryPresentation];
     if(error.code==NSURLErrorCancelled||self.presentedViewController)return;
     self.pageLabel.text=@"加载失败，可返回或关闭";
     UIAlertController *alert=[UIAlertController alertControllerWithTitle:@"网站暂时无法加载" message:error.localizedDescription preferredStyle:UIAlertControllerStyleAlert];
@@ -139,6 +185,7 @@
 }
 - (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *)navigation withError:(NSError *)error { [self showError:error]; }
 - (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error { [self showError:error]; }
+- (void)webView:(WKWebView *)webView didFinishNavigation:(WKNavigation *)navigation { [self captureHistoryPage]; }
 - (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView { [webView reload]; }
 - (void)webView:(WKWebView *)webView runJavaScriptAlertPanelWithMessage:(NSString *)message initiatedByFrame:(WKFrameInfo *)frame completionHandler:(void (^)(void))done {
     UIAlertController *alert=[UIAlertController alertControllerWithTitle:self.hostLabel.text message:message preferredStyle:UIAlertControllerStyleAlert];[alert addAction:[UIAlertAction actionWithTitle:@"好" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){done();}]];[self presentViewController:alert animated:YES completion:nil];
@@ -147,7 +194,7 @@
     UIAlertController *alert=[UIAlertController alertControllerWithTitle:self.hostLabel.text message:message preferredStyle:UIAlertControllerStyleAlert];[alert addAction:[UIAlertAction actionWithTitle:@"确定" style:UIAlertActionStyleDefault handler:^(UIAlertAction *a){done(YES);}]];[alert addAction:[UIAlertAction actionWithTitle:@"取消" style:UIAlertActionStyleCancel handler:^(UIAlertAction *a){done(NO);}]];[self presentViewController:alert animated:YES completion:nil];
 }
 #if ERP_TESTING
-- (NSDictionary *)verifyState { return @{@"host":self.hostLabel.text?:@"",@"url":self.web.URL.absoluteString?:@"",@"back":@(self.web.canGoBack),@"forward":@(self.forwardButton.enabled),@"loading":@(self.web.loading),@"title":self.web.title?:@"",@"close":@(!self.closeButton.hidden),@"barBottom":@(CGRectGetMaxY(self.bar.frame)),@"webTop":@(self.web.frame.origin.y),@"statusVisible":@(!self.prefersStatusBarHidden),@"rootSwipe":@(self.edgeBack.enabled),@"historySwipe":@(self.web.allowsBackForwardNavigationGestures),@"interactive":@(self.edgeReturn!=nil)}; }
+- (NSDictionary *)verifyState { return @{@"host":self.hostLabel.text?:@"",@"url":self.web.URL.absoluteString?:@"",@"back":@(self.web.canGoBack),@"forward":@(self.forwardButton.enabled),@"loading":@(self.web.loading),@"title":self.web.title?:@"",@"close":@(!self.closeButton.hidden),@"barBottom":@(CGRectGetMaxY(self.bar.frame)),@"webTop":@(self.web.frame.origin.y),@"statusVisible":@(!self.prefersStatusBarHidden),@"rootSwipe":@(self.edgeBack.enabled&&!self.web.canGoBack),@"historySwipe":@(self.edgeBack.enabled&&self.web.canGoBack),@"interactive":@(self.edgeReturn!=nil||self.historyFront!=nil)}; }
 - (void)verifyOpenNext { [self.web evaluateJavaScript:@"document.querySelector('a').click()" completionHandler:nil]; }
 #endif
 @end
