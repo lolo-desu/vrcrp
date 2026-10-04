@@ -179,7 +179,7 @@ jobs:
         run: |
           VERSION=$(python3 -c "import plistlib; print(plistlib.load(open('ERPStable/Info.plist','rb'))['CFBundleShortVersionString'])")
           cp release-build/ERPStable-unsigned.ipa "vrcrp-v${VERSION}-unsigned.ipa"
-          cp android-build/vrcrp-android.apk "vrcrp-v${VERSION}-android.apk"
+          cp android-build/build/vrcrp-android.apk "vrcrp-v${VERSION}-android.apk"
           sha256sum "vrcrp-v${VERSION}-unsigned.ipa" "vrcrp-v${VERSION}-android.apk" > SHA256.txt
           if gh release view "v${VERSION}" >/dev/null 2>&1; then
             echo "Version v${VERSION} already published; increment the version before publishing again."
