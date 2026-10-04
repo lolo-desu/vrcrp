@@ -125,24 +125,26 @@ PY
 xcrun simctl io "$SIM_ID" screenshot "$ROOT/build/app-tabs.png"
 xcrun simctl launch --terminate-running-process "$SIM_ID" local.erp.stable --verify-ux
 wait_for_report ux-dark.json
-for phase in discover chat profile chat-return restored dark; do cp "$DATA_PATH/Documents/ux-$phase.json" "$ROOT/build/ux-$phase.json"; done
+for phase in discover chat profile chat-return restored discover-return dark; do cp "$DATA_PATH/Documents/ux-$phase.json" "$ROOT/build/ux-$phase.json"; done
 python3 - "$ROOT/build" <<'PYUX'
 import json,sys
 from pathlib import Path
-stages={s:json.loads((Path(sys.argv[1])/f'ux-{s}.json').read_text()) for s in ['discover','chat','profile','chat-return','restored','dark']}
+stages={s:json.loads((Path(sys.argv[1])/f'ux-{s}.json').read_text()) for s in ['discover','chat','profile','chat-return','restored','discover-return','dark']}
 for stage,data in stages.items():
     print(stage,data)
     assert 'error' not in data and data['plainNavigation'] and not data['overlay'],data
-    if stage in ['discover','restored','dark']:
+    if stage in ['discover','discover-return','dark']:
         assert data['nativeNavVisible'] and not data['edgeBackEnabled'],data
         assert len(data['actions'])==3 and all(b['width']>=56 and b['height']>=56 and b['bottom']<=data['navTop']-10 for b in data['actions']),data
+    elif stage=='restored':
+        assert data['nativeNavVisible'] and not data['edgeBackEnabled'] and not data['canGoBack'] and len(data['actions'])==0,data
     else:
         assert not data['nativeNavVisible'] and data['webNavVisibility']=='hidden' and data['canGoBack'],data
         if stage=='chat':assert data['keyboardVisible'] and data['inputBottom']<=data['nativeHeight'] and data['edgeBackEnabled'],data
         else:assert data['edgeBackEnabled'],data
-    expected=[24/255,28/255,35/255,1] if stage=='dark' else [1,1,1,1]
+    expected=[24/255,28/255,35/255,1] if stage=='dark' else [1,235/255,117/255,1] if stage=='profile' else [1,1,1,1]
     assert max(abs(a-b) for a,b in zip(data['statusColor'],expected))<1/255,data
-assert stages['chat-return']['path']=='/matches/thread' and stages['restored']['path']=='/discover',stages
+assert stages['chat-return']['path']=='/matches/thread' and stages['restored']['path']=='/matches' and stages['discover-return']['path']=='/discover',stages
 assert stages['dark']['statusStyle']==1,stages['dark']
 print('PASS: actual iOS root/detail navigation, third-level chat push/back, keyboard, card action spacing and light/dark status bar')
 PYUX

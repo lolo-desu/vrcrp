@@ -894,7 +894,8 @@ static UIView *ERPFocusedView(UIView *view) {
         step(@"chat",@"document.activeElement===document.querySelector('textarea')",^{[self verifyJavaScript:@"document.querySelector('textarea').focus()"];},^BOOL(void){return self.keyboardVisible&&!self.pageNavigation.transitioning;}),
         step(@"profile",@"location.pathname==='/u/peer'",^{[self verifyJavaScript:@"document.activeElement.blur();__fixtureOpen('/u/peer')"];},^BOOL(void){return !self.keyboardVisible&&!self.pageNavigation.transitioning;}),
         step(@"chat-return",@"location.pathname==='/matches/thread'",^{[self verifyJavaScript:@"__vrcrpBack()"];},^BOOL(void){return !self.pageNavigation.transitioning;}),
-        step(@"restored",rootReady,^{[self verifyJavaScript:@"__vrcrpBack()"];},^BOOL(void){return !self.pageNavigation.transitioning&&!self.bottomNav.hidden;}),
+        step(@"restored",@"location.pathname==='/matches'",^{[self verifyJavaScript:@"__vrcrpBack()"];},^BOOL(void){return !self.pageNavigation.transitioning&&!self.bottomNav.hidden;}),
+        step(@"discover-return",rootReady,^{[self verifyJavaScript:@"__fixtureOpen('/discover')"];},^BOOL(void){return !self.pageNavigation.transitioning&&!self.bottomNav.hidden;}),
         step(@"dark",@"getComputedStyle(document.querySelector('.app-top')).backgroundColor==='rgb(24, 28, 35)'",^{[self verifyJavaScript:@"__fixtureDark()"];},^BOOL(void){return [self verifyHeaderRed:24.0/255];})
     ];[self runVerifySteps:steps index:0 deadline:0];
 }
