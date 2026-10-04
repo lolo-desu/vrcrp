@@ -560,7 +560,6 @@
     generation++;settleGeneration++;
     paintMemo=null;
     document.documentElement.dataset.vrcrpTopLevel=String(topPages.has(location.pathname));
-    window.__vrcrpRefreshSurface?.();
     if(location.pathname!==lastPath||!ready)installPlaceholder(location.pathname);
     const theme=getComputedStyle(document.documentElement),surface=rgba('rgb('+ (theme.getPropertyValue('--surface').trim()||'255 255 255') +')'),canvas=rgba('rgb('+ (theme.getPropertyValue('--bg').trim()||'245 245 245') +')'),ink=rgba('rgb('+ (theme.getPropertyValue('--fg').trim()||'35 35 35') +')');
     post({ kind: 'route', path: location.pathname, entryKey:entryKey(),parentKey:index>0?String(entryKeys[index-1]):null,parentPath:index>0?entries[index-1].split('?')[0]:null,ancestors:entryKeys.slice(Math.max(0,index-24),index),direction,showTabs: tabPages.has(location.pathname),title:pageTitle(location.pathname),surfaceColor:surface,canvasColor:canvas,inkColor:ink,placeholderLayout:placeholderLayout(),canGoBack: index > 0 && !roots.has(location.pathname), refreshable: refreshable.has(location.pathname) });

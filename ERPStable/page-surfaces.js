@@ -200,7 +200,7 @@
     }
     pageBack(main);
     refreshSheet();
-    {const r=header?.getBoundingClientRect(),style=header?getComputedStyle(header):null;const raw=style?.backgroundColor&&style.backgroundColor!=='rgba(0, 0, 0, 0)'?style.backgroundColor:'rgb('+(getComputedStyle(root).getPropertyValue('--bg').trim()||'255 255 255')+')';const values=raw.match(/[\d.]+/g)?.map(Number)||[255,255,255,1];const geometry={kind:'pageHeader',height:Math.max(0,r?.height||0),color:[values[0]/255,values[1]/255,values[2]/255,values[3]??1]};const fp=JSON.stringify(geometry);if(fp!==lastHeader){lastHeader=fp;post(geometry);}}
+    {const r=header?.getBoundingClientRect(),style=header?getComputedStyle(header):null;const raw=style?.backgroundColor&&style.backgroundColor!=='rgba(0, 0, 0, 0)'?style.backgroundColor:'rgb('+(getComputedStyle(root).getPropertyValue(chat()?'--surface':'--bg').trim()||'255 255 255')+')';const values=raw.match(/[\d.]+/g)?.map(Number)||[255,255,255,1];const geometry={kind:'pageHeader',height:Math.max(0,r?.height||(chat()?56:0)),color:[values[0]/255,values[1]/255,values[2]/255,values[3]??1]};const fp=(window.__vrcrpEntryKey?.()||history.state?.key||'')+JSON.stringify(geometry);if(fp!==lastHeader){lastHeader=fp;post(geometry);}}
     for(const button of document.querySelectorAll('button,[role="button"],a')){
       if(button.closest('[data-vrcrp-install]'))continue;
       const title=(button.getAttribute('aria-label')||button.textContent||'').trim();
