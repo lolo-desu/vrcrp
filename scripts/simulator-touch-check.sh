@@ -27,8 +27,12 @@ trap finish_touch_check EXIT
 xcrun simctl boot "$SIM_ID"
 xcrun simctl bootstatus "$SIM_ID" -b
 set -o pipefail
+TEST_ARGS=(-parallel-testing-enabled NO)
+if test "${VRCRP_TEST_SCOPE:-all}" = preferences; then
+  TEST_ARGS+=(-only-testing:GestureChecks/AppPreferenceChecks -only-testing:GestureChecks/GestureChecks/testExternalHistorySwipeThenReturnToApp)
+fi
 xcodebuild test -project ERPStable.xcodeproj -scheme GestureChecks \
-  -destination "platform=iOS Simulator,id=$SIM_ID" -parallel-testing-enabled NO \
+  -destination "platform=iOS Simulator,id=$SIM_ID" \
   -derivedDataPath build/UITestDerived -resultBundlePath build/touch-results.xcresult \
-  CODE_SIGNING_ALLOWED=NO 2>&1 | tee build/touch-tests.log
+  "${TEST_ARGS[@]}" CODE_SIGNING_ALLOWED=NO 2>&1 | tee build/touch-tests.log
 echo 'PASS: actual XCTest profile/like-sheet/external gestures, background notifications beyond short grace and logout, palette persistence and native color synchronization'

@@ -1,0 +1,29 @@
+name: Verify preference controls and external navigation
+on:
+  push:
+    branches: [fix-v016-checks]
+permissions:
+  contents: read
+jobs:
+  preferences:
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build device application
+        run: bash scripts/build-unsigned.sh
+      - name: Check preference controls and external navigation
+        env:
+          VRCRP_TEST_SCOPE: preferences
+        run: bash scripts/simulator-touch-check.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vrcrp-preference-checks
+          path: |
+            build/touch-tests.log
+            build/touch-native.log
+            build/preference-state.json
+            build/background-listening.json
+            build/touch-fixture-server.log
+          retention-days: 7
