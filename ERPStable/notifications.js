@@ -7,6 +7,7 @@
   const localEvents = new WeakSet(), hydration = new Map();
   let detailRequested = false;
   let userId = '', unread = null, socket = null, active = true, busy = false;
+  window.__vrcrpForeground=true;
   let pollTimer = null, fallbackTimer = null, lastDetailed = 0, sessionStarted = Date.now();
   let epoch = 0, controller = null, retryDelay = 0, syncAgain = false;
   let requestHeaders = { Accept: 'application/json', 'X-Content-Mode': 'sfw' };
@@ -132,6 +133,7 @@
     if (!userId || !active || document.hidden || busy || !navigator.onLine) return;
     busy = true;
     let owner = epoch;
+    const readStamp=window.__vrcrpSiteCache?.readVersion?.();
     controller = new AbortController();
     const timeout = setTimeout(() => controller?.abort(), 12000);
     try {
@@ -146,8 +148,9 @@
       for (let i=0;i<responses.length;i++) if (responses[i].ok) {
         const value = unwrap(await responses[i].json()); if (owner !== epoch) return;
         if (i === 0) {
-          counters(value);
-          if (!window.__vrcrpSiteCache?.commitCounters(value)) window.__vrcrpDispatchServerEvent('counters',value);
+          const reconciled=window.__vrcrpSiteCache?.reconcileCounters?.(value,readStamp)||value;
+          counters(reconciled);
+          if (!window.__vrcrpSiteCache?.commitCounters(reconciled)) window.__vrcrpDispatchServerEvent('counters',reconciled);
         } else {
           if (i === 1){snapshot(value);nextCursor=value?.nextCursor;}
           if (location.pathname === '/matches') refreshList(value,i===1?'active':'unmatched');
@@ -174,9 +177,10 @@
     pollTimer = setTimeout(async () => { await sync(); const urgent=syncAgain;syncAgain=false; schedule(Math.max(retryDelay,urgent?200:['/matches','/notifications','/me','/likes','/visitors'].includes(location.pathname)?2000:/^\/matches\/[^/]+$/.test(location.pathname)?4000:5000)); }, delay);
   }
   window.__vrcrpSyncChats = () => schedule(0);
-  window.__vrcrpAppActive = value => { active = value === true; window.__vrcrpSiteCache?.active(active); if (active) schedule(0); else clearTimeout(pollTimer); };
+  window.__vrcrpAppActive = value => { active = value === true;window.__vrcrpForeground=active;window.__vrcrpRefreshNotificationReads?.(); window.__vrcrpSiteCache?.active(active); if (active) schedule(0); else clearTimeout(pollTimer); };
   window.fetch = function (...args) {
     let owner = epoch;
+    const readStamp=window.__vrcrpSiteCache?.readVersion?.();
     const result = Reflect.apply(originalFetch,this,args);
     let url, method;
     try {
@@ -202,7 +206,7 @@
         if (owner !== epoch) return;
         const value = unwrap(data);
         if (url.pathname === '/api/v1/me') session(value);
-        else if (url.pathname.endsWith('/counters')) counters(value);
+        else if (url.pathname.endsWith('/counters')) counters(window.__vrcrpSiteCache?.reconcileCounters?.(value,readStamp)||value);
         else snapshot(value, url.searchParams.get('state') || 'active', !url.searchParams.has('cursor'));
       }).catch(()=>{});
     }).catch(()=>{});

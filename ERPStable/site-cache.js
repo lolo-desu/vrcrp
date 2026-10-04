@@ -220,10 +220,11 @@
     })};
   }
   async function fenceResponse(response,url,stamp,owner){
-    if(!response.ok||owner!==epoch)return response;
+    if(owner!==epoch){if(url.pathname==='/api/v1/me/counters')throw new DOMException('Stale counter session','AbortError');return response;}
+    if(!response.ok)return response;
     if(url.pathname==='/api/v1/me/counters'&&stamp!==readRevision){
+      const raw=await response.clone().json();if(owner!==epoch)throw new DOMException('Stale counter session','AbortError');
       const current=client()?.getQueryData(['counters']);if(!current)return response;
-      const raw=await response.clone().json();if(owner!==epoch)return response;
       const value=raw?.data?{...raw,data:current}:current;
       return new Response(JSON.stringify(value),{status:response.status,headers:response.headers});
     }
@@ -490,6 +491,8 @@
   }
   window.__vrcrpSiteCache = {
     account:()=>user,
+    readVersion:()=>readRevision,
+    reconcileCounters:(value,stamp)=>stamp===undefined||stamp===readRevision?value:client()?.getQueryData(['counters'])||value,
     notificationItems(){const c=client();if(!c)return [];const q=c.getQueryCache().getAll().find(q=>scoped(q)&&family(q)==='notifications'&&observed(q));return q?.state.data?.pages?.flatMap(p=>p.items||[])||q?.state.data?.items||[];},
     async readVisibleNotifications(ids){
       if(!foreground()||location.pathname!=='/notifications')return;

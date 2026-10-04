@@ -4,7 +4,7 @@
   let queued=false,timer=0,flight=false;
   function update(){
     queued=false;
-    if(location.pathname!=='/notifications'||document.hidden||!navigator.onLine){clearTimeout(timer);timer=0;return;}
+    if(location.pathname!=='/notifications'||document.hidden||window.__vrcrpForeground===false||!navigator.onLine){clearTimeout(timer);timer=0;return;}
     if(flight)return;
     const items=window.__vrcrpSiteCache?.notificationItems?.()||[],ids=new Set(items.filter(i=>!i.read).map(i=>i.id)),visible=[];
     if(!ids.size)return;
@@ -21,7 +21,7 @@
     }
     if(!visible.length)return;
     clearTimeout(timer);timer=setTimeout(async()=>{
-      timer=0;if(location.pathname!=='/notifications'||document.hidden)return;
+      timer=0;if(location.pathname!=='/notifications'||document.hidden||window.__vrcrpForeground===false)return;
       flight=true;
       try{await window.__vrcrpSiteCache.readVisibleNotifications(visible);}catch{}
       finally{flight=false;timer=setTimeout(schedule,1800);}
@@ -31,5 +31,6 @@
   new MutationObserver(schedule).observe(document,{childList:true,subtree:true});
   document.addEventListener('scroll',schedule,{capture:true,passive:true});
   document.addEventListener('visibilitychange',schedule);window.addEventListener('popstate',schedule);window.addEventListener('online',schedule);
+  window.__vrcrpRefreshNotificationReads=schedule;
   schedule();
 })();
