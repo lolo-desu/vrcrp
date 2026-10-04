@@ -68,7 +68,7 @@ with sync_playwright() as p:
   localized.goto('https://erp.sex/')
   localized.wait_for_function('__vrcrpPageTemplates.label("配对")==="配對"')
   assert localized.evaluate('__vrcrpPageTemplates.label("输入消息…")')=='輸入訊息…'
-  assert localized.evaluate('__vrcrpPageTemplates.label("聊天记录存在这个浏览器。")')=='聊天記錄存在這個瀏覽器。'
+  assert localized.evaluate('__vrcrpPageTemplates.label("聊天记录存在这个浏览器。")')==''
   localized.close()
   browser.close()
 (root/'build/page-template-verification.json').write_text(json.dumps({'checks':reports,'fixedGeometry':'positions, sizes, borders, radii and backgrounds unchanged','privateContent':'names, media, messages, input values and drafts discarded','contextIsolation':'viewport/theme/account invalidation'},ensure_ascii=False,indent=2))

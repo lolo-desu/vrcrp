@@ -10,6 +10,8 @@
   let warmTimer=0;
   const listWarming=new Map();
   const pendingEvents=[];
+  let readRevision=0;
+  const notificationReads=new Set(),threadReads=new Map(),readingNotifications=new Set();
   const idOK = value => typeof value === 'string' && /^[\w-]{1,120}$/.test(value);
   const unwrap = value => value?.data ?? value;
   const family=q=>q.queryKey?.[0]==='m'?q.queryKey[3]:({ownProfile:'profile',myTonight:'profile',worldRef:'world'}[q.queryKey?.[0]]||q.queryKey?.[0]);
@@ -135,7 +137,7 @@
     if(!['POST','PATCH','PUT','DELETE'].includes(method)||url.origin!==location.origin)return null;
     const p=url.pathname.slice('/api/v1/'.length).split('/');let groups;
     // Chat read/send already have an immediate, message-specific sync path.
-    if(p[0]==='matches'&&['read','messages'].includes(p[2])||p[0]==='messages'&&p[2]==='translate')return null;
+    if(p[0]==='matches'&&p[2]==='messages'||p[0]==='messages'&&p[2]==='translate')return null;
     if(p[0]==='swipes'||p[0]==='likes')groups=['likes','profile','browse','matches','counters','energy','passes'];
     else if(p[0]==='posts'||p[0]==='guestbook'||p[0]==='profiles'&&p[2]==='guestbook')groups=['posts','profile','guestbook','guestbookDanmaku','notifications','counters'];
     else if(p[0]==='profiles'||p[0]==='me'&&['profile','reactions','avatar','avoid','passes','vrc','settings','tag-attitudes','tonight'].includes(p[1])||p[0]==='users'&&p[2]==='block')groups=['me','profile','tagAttitudes','browse','likes','visitors','worldUsers','sameModel','blocks','avoid','counters',...(p[2]==='block'?['matches']:[])];
@@ -146,8 +148,11 @@
     return groups?{groups,path:p,method}:null;
   }
   function mutationSucceeded(plan,body){
-    changed(plan.groups);const c=client();if(!c)return;
+    const c=client();
     const p=plan.path,target=body?.targetId;
+    if(p[0]==='matches'&&p[2]==='read')acknowledgeThread(p[1],body?.lastMessageId);
+    if(p[0]==='notifications'&&p[1]==='read')acknowledgeNotifications(body);
+    changed(plan.groups);if(!c)return;
     // Patch only consequences confirmed by the successful server operation.
     // Keep loaded pages/pageParams, then reconcile their cursor boundaries.
     if(p[0]==='swipes'&&p.length===1&&idOK(target)&&['like','pass','superlike'].includes(body?.action)){
@@ -162,7 +167,72 @@
     }
     // setQueryData must not make inactive/other variants look authoritative.
     c.invalidateQueries({predicate:q=>scoped(q)&&plan.groups.includes(family(q)),refetchType:'none'}).catch(()=>{});
-    if(plan.groups.includes('matches'))window.__vrcrpSyncChats?.();
+    if(plan.groups.includes('matches')||plan.groups.includes('counters'))window.__vrcrpSyncChats?.();
+  }
+  function patchCounter(field, update){
+    const c=client();if(!c)return;
+    readRevision++;
+    c.cancelQueries({queryKey:['counters'],exact:true},{silent:true}).catch(()=>{});
+    const value=c.getQueryData(['counters']);
+    if(value&&Number.isSafeInteger(value[field])){
+      const next={...value,[field]:Math.max(0,update(value[field]))};
+      c.setQueryData(['counters'],next);window.__vrcrpCountersChanged?.(next);
+    }
+  }
+  function acknowledgeNotifications(body){
+    const c=client();if(!c)return;
+    const ids=new Set(Array.isArray(body?.ids)?body.ids.filter(idOK):[]),unreadIDs=new Set();
+    for(const q of c.getQueryCache().getAll())if(scoped(q)&&family(q)==='notifications'){
+      const data=q.state.data,items=data?.pages?.flatMap(p=>p.items||[])||data?.items||[];
+      for(const item of items)if(body?.all===true||ids.has(item.id)){
+        if(!item.read&&!notificationReads.has(item.id))unreadIDs.add(item.id);
+        notificationReads.add(item.id);
+      }
+    }
+    for(const id of ids)notificationReads.add(id);
+    while(notificationReads.size>2048)notificationReads.delete(notificationReads.values().next().value);
+    patchCounter('unreadNotifications',n=>body?.all===true?0:n-unreadIDs.size);
+    patchItems(c,q=>family(q)==='notifications',items=>items.map(item=>notificationReads.has(item.id)?{...item,read:true}:item));
+  }
+  function acknowledgeThread(id,lastMessageId){
+    const c=client();if(!c||!idOK(id)||!idOK(lastMessageId))return;
+    let stamp='';
+    for(const b of bodies.values())if(b.d.messages&&b.d.id===id){const m=unwrap(b.raw)?.items?.find(m=>m.id===lastMessageId);if(m?.createdAt)stamp=m.createdAt;}
+    let removed=0;
+    patchItems(c,q=>family(q)==='matches'&&q.queryKey.length===5,items=>items.map(item=>{
+      if(item.id!==id)return item;
+      const latest=item.lastMessage;
+      if(latest?.id!==lastMessageId&&latest?.senderId!==user&&latest?.createdAt&&(!stamp||latest.createdAt>stamp))return item;
+      removed=Math.max(removed,item.unreadCount||0);return {...item,unreadCount:0};
+    }));
+    threadReads.set(id,{lastMessageId,stamp});while(threadReads.size>256)threadReads.delete(threadReads.keys().next().value);
+    patchCounter('unreadMessages',n=>n-removed);
+  }
+  function sanitize(value,resource){
+    if(!Array.isArray(value?.items))return value;
+    return {...value,items:value.items.map(item=>{
+      if(resource==='notifications'&&notificationReads.has(item.id))return {...item,read:true};
+      if(resource==='matches'){
+        const read=threadReads.get(item.id),last=item.lastMessage;
+        if(read&&(last?.id===read.lastMessageId||read.stamp&&last?.createdAt&&last.createdAt<=read.stamp))return {...item,unreadCount:0};
+      }
+      return item;
+    })};
+  }
+  async function fenceResponse(response,url,stamp,owner){
+    if(!response.ok||owner!==epoch)return response;
+    if(url.pathname==='/api/v1/me/counters'&&stamp!==readRevision){
+      const current=client()?.getQueryData(['counters']);if(!current)return response;
+      const raw=await response.clone().json();if(owner!==epoch)return response;
+      const value=raw?.data?{...raw,data:current}:current;
+      return new Response(JSON.stringify(value),{status:response.status,headers:response.headers});
+    }
+    if(url.pathname==='/api/v1/notifications'||url.pathname==='/api/v1/matches'){
+      const raw=await response.clone().json();if(owner!==epoch)return response;
+      const next=sanitize(unwrap(raw),resource(url));
+      return new Response(JSON.stringify(raw?.data?{...raw,data:next}:next),{status:response.status,headers:response.headers});
+    }
+    return response;
   }
   function configure(next) {
     const mode = next['X-Content-Mode'] || headers['X-Content-Mode'];
@@ -199,10 +269,12 @@
   function commitCounters(value) {
     const c = client(); if (!c || !value || !Number.isSafeInteger(value.unreadMessages)) return false;
     const previous=c.getQueryData(['counters']);c.setQueryData(['counters'], value);
+    window.__vrcrpCountersChanged?.(value);
     if(previous){const groups=[];if(value.newLikes!==previous.newLikes)groups.push('likes');if(value.newVisitors!==previous.newVisitors)groups.push('visitors');if(value.unreadNotifications!==previous.unreadNotifications)groups.push('notifications');if(groups.length)changed(groups);}
     scheduleListWarm();return true;
   }
   function commitMatches(value, state = 'active') {
+    value=sanitize(value,'matches');
     const c = client(); if (!c || !Array.isArray(value?.items)) return false;
     let applied = false;
     for (const q of scopes(c)) {
@@ -298,13 +370,20 @@
     const flight=flights.get(d.key);
     if(flight&&flight.revision===revision(d))return flight.response.then(r=>r.clone());
     const owner = epoch, stamp=revision(d),prior = bodies.get(d.key);
-    const result = Reflect.apply(network, receiver, args);
+    const readStamp=readRevision;
+    const result = Reflect.apply(network, receiver, args).then(r=>fenceResponse(r,d.url,readStamp,owner));
     const owned = result.then(r => r.clone()),record={response:owned,resource:d.resource,revision:stamp};flights.set(d.key,record);
     owned.then(response => {
       if (response.status === 401 && owner === epoch) reset('');
       if(owner===epoch)backoff(response);
       if (!response.ok) return;
-      return response.clone().json().then(raw => { if (owner === epoch&&stamp===revision(d)) save(d, response, raw, prior); });
+      return response.clone().json().then(raw => {
+        if(owner!==epoch||stamp!==revision(d))return;
+        save(d,response,raw,prior);
+        if(!Array.isArray(unwrap(raw)?.items))return;
+        if(location.pathname==='/likes'&&d.url.pathname==='/api/v1/likes/received')patchCounter('newLikes',()=>0);
+        if(location.pathname==='/visitors'&&d.url.pathname==='/api/v1/visitors')patchCounter('newVisitors',()=>0);
+      });
     }).catch(error => {if(owner===epoch&&error?.name!=='AbortError')pauseUntil=Date.now()+30000;}).finally(() => { if (flights.get(d.key) === record) flights.delete(d.key); });
     return result;
   }
@@ -315,16 +394,17 @@
     return request(d,[resolved.href,{credentials:'include',headers,cache:'no-store',signal:control.signal}]).finally(()=>{clearTimeout(timeout);ownedControllers.delete(control);});
   }
   window.fetch = function (...args) {
-    let d, mutation, signal, plan,bodyPromise,method = 'GET';
+    let d, mutation, signal, plan,bodyPromise,requestURL,method = 'GET';
     try {
       const request = args[0] instanceof Request ? args[0] : null;
       signal=args[1]?.signal || request?.signal;
       const url = new URL(request?.url || String(args[0]),location.href);
+      requestURL=url;
       method = String(args[1]?.method || request?.method || 'GET').toUpperCase();
       if (url.origin === location.origin && url.pathname.startsWith('/api/v1/')) {
         const h = new Headers(args[1]?.headers || request?.headers || {});
         const next = {};
-        if (['sfw','mixed','r18'].includes(h.get('X-Content-Mode'))) next['X-Content-Mode'] = h.get('X-Content-Mode');
+        if (['sfw','mixed','r18','nsfw'].includes(h.get('X-Content-Mode'))) next['X-Content-Mode'] = h.get('X-Content-Mode');
         if (h.get('Accept-Language')) next['Accept-Language'] = h.get('Accept-Language');
         configure(next);
         plan=mutationPlan(url,method);
@@ -346,6 +426,9 @@
       const owner = epoch, result = Reflect.apply(network,this,args);
       if(plan)result.then(response=>{if(response.ok&&owner===epoch)bodyPromise.then(body=>{if(owner===epoch)mutationSucceeded(plan,body);}).catch(()=>{});}).catch(()=>{});
       if (mutation) result.then(response => { if (response.ok) response.clone().json().then(raw => { if (owner === epoch) serverEvent('message.new',{...unwrap(raw),matchId:mutation}); }).catch(() => {}); }).catch(() => {});
+      if(method==='GET'&&requestURL?.origin===location.origin&&requestURL.pathname==='/api/v1/me/counters'){
+        const readStamp=readRevision;return result.then(r=>fenceResponse(r,requestURL,readStamp,owner));
+      }
       return result;
     }
     const cached = bodies.get(d.key), maxAge = d.messages ? 90000 : d.page ? 300000 : 30000;
@@ -367,14 +450,16 @@
     return request(d,args,this);
   };
   function reset(id) {
-    if (user !== id) { epoch++;stopSync();for(const c of ownedControllers)c.abort(); bodies.clear(); flights.clear(); queryClient = null; bus = null;importing=false; warmVisit = ''; warmCount = 0; }
+    if (user !== id) { epoch++;readRevision++;notificationReads.clear();threadReads.clear();readingNotifications.clear();stopSync();for(const c of ownedControllers)c.abort(); bodies.clear(); flights.clear(); queryClient = null; bus = null;importing=false; warmVisit = ''; warmCount = 0; }
     user = idOK(id) ? id : '';
+    window.__vrcrpChatPins?.session(user);
   }
   function invalidate(id) { for (const [k,b] of bodies) if (b.d.id === id) bodies.delete(k); }
   function serverEvent(type, value) {
     if (!user) return;
     const eventGroups=type==='notification.new'?['notifications']:type==='like.received'||type==='like.new'?['likes','profile']:type==='visitor.new'?['visitors']:type==='profile.updated'?['profile','browse','likes']:type.startsWith('post.')?['posts']:type.startsWith('guestbook.')?['guestbook','guestbookDanmaku']:type==='account.updated'?['me','profile','likes','browse']:[];
     if(eventGroups.length)changed(eventGroups);
+    if(['notification.new','like.received','like.new','visitor.new','message.new','reconnected','announcement.new','announcement.changed','account.updated'].includes(type))window.__vrcrpSyncChats?.();
     if (['match.closed','match.updated','message.recalled','account.updated'].includes(type)) {
       if (idOK(value?.matchId)) invalidate(value.matchId); else if (type === 'account.updated') bodies.clear();
     }
@@ -404,9 +489,18 @@
     warmCount = 1; value.items.slice(0,3).forEach(item => prefetch(item.id));
   }
   window.__vrcrpSiteCache = {
+    account:()=>user,
+    notificationItems(){const c=client();if(!c)return [];const q=c.getQueryCache().getAll().find(q=>scoped(q)&&family(q)==='notifications'&&observed(q));return q?.state.data?.pages?.flatMap(p=>p.items||[])||q?.state.data?.items||[];},
+    async readVisibleNotifications(ids){
+      if(!foreground()||location.pathname!=='/notifications')return;
+      const selected=[...new Set(ids)].filter(id=>idOK(id)&&!notificationReads.has(id)&&!readingNotifications.has(id));if(!selected.length)return;
+      const owner=epoch;selected.forEach(id=>readingNotifications.add(id));
+      try{await window.fetch('/api/v1/notifications/read',{method:'POST',credentials:'include',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({ids:selected})});}
+      finally{if(owner===epoch)selected.forEach(id=>readingNotifications.delete(id));}
+    },
     session(id, nextHeaders) { reset(id); if (nextHeaders) configure(nextHeaders);scheduleListWarm(); },
     active(value) { active = value === true;if(!active){clearTimeout(pollTimer);clearTimeout(refreshTimer);clearTimeout(warmTimer);pollTimer=refreshTimer=warmTimer=0;}else{queueRefresh(pageFamilies,Date.now()-1500,true);armPoll();scheduleListWarm();} }, commitCounters, commitMatches, refreshList, warmList, prefetch, serverEvent, preloadLists,
-    pageChanged(){if(foreground()){armPoll();scheduleListWarm();}},
+    pageChanged(){if(foreground()){window.__vrcrpSyncChats?.();if(location.pathname==='/likes'||location.pathname==='/visitors')queueRefresh([location.pathname==='/likes'?'likes':'visitors'],Date.now(),true);armPoll();scheduleListWarm();}},
     refreshPage() {
       const c=client();if(!c)return false;
       const groups=new Set(c.getQueryCache().getAll().filter(q=>scoped(q)&&observed(q)).map(family));changed(groups);

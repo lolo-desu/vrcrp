@@ -164,6 +164,11 @@ static UIView *ERPFocusedView(UIView *view) {
     self.chatNotifications=[[ChatNotifications alloc] initWithCookieStore:configuration.websiteDataStore.httpCookieStore];
     configuration.ignoresViewportScaleLimits = NO;
     configuration.allowsInlineMediaPlayback = YES;
+    for(NSString *name in @[@"chinese-converter",@"app-language"]) {
+        NSString *source=[NSString stringWithContentsOfURL:[NSBundle.mainBundle URLForResource:name withExtension:@"js"] encoding:NSUTF8StringEncoding error:nil];
+        NSAssert(source!=nil,@"Missing language resource");
+        [configuration.userContentController addUserScript:[[WKUserScript alloc] initWithSource:ERPInjectedScript(source) injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]];
+    }
     NSString *themeScript=[NSString stringWithContentsOfURL:[NSBundle.mainBundle URLForResource:@"app-theme" withExtension:@"js"] encoding:NSUTF8StringEncoding error:nil];
     NSAssert(themeScript!=nil,@"Missing app-theme.js");
     [configuration.userContentController addUserScript:[[WKUserScript alloc] initWithSource:ERPInjectedScript(themeScript) injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]];
@@ -197,6 +202,12 @@ static UIView *ERPFocusedView(UIView *view) {
     NSString *contentScript=[NSString stringWithContentsOfURL:[NSBundle.mainBundle URLForResource:@"content-experience" withExtension:@"js"] encoding:NSUTF8StringEncoding error:nil];
     NSAssert(contentScript!=nil,@"Missing content-experience.js");
     [configuration.userContentController addUserScript:[[WKUserScript alloc] initWithSource:ERPInjectedScript(contentScript) injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]];
+    NSString *pinScript=[NSString stringWithContentsOfURL:[NSBundle.mainBundle URLForResource:@"chat-pins" withExtension:@"js"] encoding:NSUTF8StringEncoding error:nil];
+    NSAssert(pinScript!=nil,@"Missing chat-pins.js");
+    [configuration.userContentController addUserScript:[[WKUserScript alloc] initWithSource:ERPInjectedScript(pinScript) injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]];
+    NSString *readScript=[NSString stringWithContentsOfURL:[NSBundle.mainBundle URLForResource:@"notification-read" withExtension:@"js"] encoding:NSUTF8StringEncoding error:nil];
+    NSAssert(readScript!=nil,@"Missing notification-read.js");
+    [configuration.userContentController addUserScript:[[WKUserScript alloc] initWithSource:ERPInjectedScript(readScript) injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]];
     Class webClass=WKWebView.class;
 #if ERP_TESTING
     if(ERPUsesSimulatorFixtures())webClass=ERPVerificationWebView.class;
@@ -423,6 +434,7 @@ static UIView *ERPFocusedView(UIView *view) {
     if((!self.canGoBack&&!self.profileOverlay)||(self.websiteOverlay&&!self.profileOverlay)||self.presentedViewController||self.pageNavigation.interactive||velocity.x<=fabs(velocity.y)*1.15)return NO;
     if(!CGRectContainsPoint(self.web.bounds,point))return NO;
     if(point.x<=24)return YES;
+    if(self.editingProfile)return NO;
     for(id zone in self.selectionZones)if(CGRectContainsPoint(VRRect(zone),point))return NO;
     for(id zone in self.horizontalZones)if(CGRectContainsPoint(VRRect(zone),point))return NO;
     return YES;
@@ -558,6 +570,7 @@ static UIView *ERPFocusedView(UIView *view) {
     NSDictionary *body = message.body;
     if ([message.name isEqualToString:@"erpNativeApp"]) {
         NSString *kind=body[@"kind"];
+        if([kind isEqual:@"languageChanged"]){[self.pageNavigation clear];self.snapshotGeneration++;return;}
         if([kind isEqual:@"backgroundStatus"]||[kind isEqual:@"backgroundListening"]){
             if([kind isEqual:@"backgroundListening"]&&[body[@"enabled"] isKindOfClass:NSNumber.class])self.chatNotifications.backgroundListeningEnabled=[body[@"enabled"] boolValue];
             if(self.chatNotifications.onBackgroundStateChanged)self.chatNotifications.onBackgroundStateChanged([self.chatNotifications backgroundState]);return;

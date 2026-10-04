@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -euo pipefail
+VERSION=8.11.1
+EXPECTED=f397b287023acdba1e9f6fc5ea72d22dd63669d59ed4a289a29b1a76eee151c6
+if command -v gradle >/dev/null; then exec gradle "$@"; fi
+CACHE="${GRADLE_USER_HOME:-$HOME/.gradle}/vrcrp-distributions"
+BIN="$CACHE/gradle-$VERSION/bin/gradle"
+if [ ! -x "$BIN" ]; then
+  mkdir -p "$CACHE"
+  ARCHIVE="$CACHE/gradle-$VERSION-bin.zip"
+  curl -fL "https://services.gradle.org/distributions/gradle-$VERSION-bin.zip" -o "$ARCHIVE"
+  python3 - "$ARCHIVE" "$EXPECTED" <<'PY'
+import hashlib,sys
+with open(sys.argv[1],'rb') as f: actual=hashlib.file_digest(f,'sha256').hexdigest()
+if actual!=sys.argv[2]: raise SystemExit('Gradle checksum mismatch')
+PY
+  unzip -q -o "$ARCHIVE" -d "$CACHE"
+fi
+exec "$BIN" "$@"

@@ -1,4 +1,4 @@
-name: Build vrcrp website iOS IPA
+name: Build vrcrp iOS and Android
 on:
   push:
     branches: [main, vrcrp-web-ios]
@@ -95,9 +95,69 @@ jobs:
             build/touch-attachments
           if-no-files-found: warn
           retention-days: 30
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: vrcrp-android-development-signing-v1
+      - name: Build installable Android APK and run lint
+        run: bash scripts/build-android.sh
+      - name: Verify APK signature and manifest
+        run: |
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --verbose --print-certs build/vrcrp-android.apk
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging build/vrcrp-android.apk
+          unzip -t build/vrcrp-android.apk
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vrcrp-android
+          path: |
+            build/vrcrp-android.apk
+            android/app/build/reports/lint-results-release.*
+          if-no-files-found: error
+  shared-ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CHROMIUM_PATH: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install browser verification dependencies
+        run: |
+          mkdir -p build/verification-deps
+          cp scripts/browser-checks-package.json build/verification-deps/package.json
+          npm install --prefix build/verification-deps --no-package-lock
+          python3 -m pip install playwright
+          python3 -m playwright install --with-deps webkit
+      - name: Verify languages, chat pinning and unread coherence
+        run: |
+          TEST_NODE_MODULES="$PWD/build/verification-deps/node_modules" python3 scripts/test-v017-ui.py
+          TEST_NODE_MODULES="$PWD/build/verification-deps/node_modules" node scripts/test-live-cache.cjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: vrcrp-shared-ui-checks
+          path: |
+            build/v017-ui.json
+            build/live-cache-verification.json
   release:
     if: github.repository != 'lolo-desu/Action-Build' && github.ref == 'refs/heads/main'
-    needs: build
+    needs: [build, android, shared-ui]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -107,17 +167,22 @@ jobs:
         with:
           name: vrcrp-web-unsigned
           path: release-build
-      - name: Publish verified unsigned IPA
+      - uses: actions/download-artifact@v4
+        with:
+          name: vrcrp-android
+          path: android-build
+      - name: Publish verified IPA and APK
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION=$(python3 -c "import plistlib; print(plistlib.load(open('ERPStable/Info.plist','rb'))['CFBundleShortVersionString'])")
           cp release-build/ERPStable-unsigned.ipa "vrcrp-v${VERSION}-unsigned.ipa"
-          sha256sum "vrcrp-v${VERSION}-unsigned.ipa" > SHA256.txt
+          cp android-build/vrcrp-android.apk "vrcrp-v${VERSION}-android.apk"
+          sha256sum "vrcrp-v${VERSION}-unsigned.ipa" "vrcrp-v${VERSION}-android.apk" > SHA256.txt
           if gh release view "v${VERSION}" >/dev/null 2>&1; then
             echo "Version v${VERSION} already published; increment the version before publishing again."
             exit 1
           fi
           gh release create "v${VERSION}" --target "$GITHUB_SHA" --title "vrcrp ${VERSION}" \
-            --notes-file RELEASE_NOTES.md --draft "vrcrp-v${VERSION}-unsigned.ipa" SHA256.txt
+            --notes-file RELEASE_NOTES.md --draft "vrcrp-v${VERSION}-unsigned.ipa" "vrcrp-v${VERSION}-android.apk" SHA256.txt
           gh release edit "v${VERSION}" --draft=false

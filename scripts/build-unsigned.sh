@@ -21,6 +21,7 @@ cp "$ROOT/ERPStable/notifications.js" "$APP/notifications.js"
 cp "$ROOT/ERPStable/keyboard.js" "$APP/keyboard.js"
 cp "$ROOT/ERPStable/app-experience.js" "$APP/app-experience.js"
 cp "$ROOT/ERPStable/app-theme.js" "$APP/app-theme.js"
+for name in chinese-converter app-language chat-pins notification-read; do cp "$ROOT/ERPStable/$name.js" "$APP/$name.js"; done
 cp "$ROOT/ERPStable/site-cache.js" "$APP/site-cache.js"
 cp "$ROOT/ERPStable/content-experience.js" "$APP/content-experience.js"
 cp "$ROOT/ERPStable/page-surfaces.js" "$APP/page-surfaces.js"

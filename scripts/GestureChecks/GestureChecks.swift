@@ -11,6 +11,21 @@ final class GestureChecks: XCTestCase {
         XCTAssertTrue(chat.waitForExistence(timeout:15));chat.tap()
         openProfile()
     }
+    func testProfileEditorCenterSwipesChangeTabsAndEdgeReturns() {
+        app.links["编辑名片测试"].tap()
+        XCTAssertTrue(app.staticTexts["基本资料编辑内容"].waitForExistence(timeout:5))
+        let basic=app.staticTexts["基本资料编辑内容"]
+        basic.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.5)).press(forDuration:0.05,thenDragTo:app.coordinate(withNormalizedOffset:CGVector(dx:0.06,dy:0.4)),withVelocity:.slow,thenHoldForDuration:0)
+        XCTAssertTrue(app.staticTexts["照片编辑内容"].waitForExistence(timeout:4))
+        let photos=app.staticTexts["照片编辑内容"]
+        photos.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.5)).press(forDuration:0.05,thenDragTo:app.coordinate(withNormalizedOffset:CGVector(dx:0.95,dy:0.4)),withVelocity:.slow,thenHoldForDuration:0)
+        XCTAssertTrue(app.staticTexts["基本资料编辑内容"].waitForExistence(timeout:4),"Center swipe returned instead of switching editor tabs")
+        let stillBasic=app.staticTexts["基本资料编辑内容"]
+        stillBasic.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.5)).press(forDuration:0.05,thenDragTo:app.coordinate(withNormalizedOffset:CGVector(dx:0.95,dy:0.4)),withVelocity:.slow,thenHoldForDuration:0)
+        XCTAssertTrue(app.staticTexts["基本资料编辑内容"].exists,"Center swipe must not leave the editor")
+        app.coordinate(withNormalizedOffset:CGVector(dx:0.008,dy:0.4)).press(forDuration:0.05,thenDragTo:app.coordinate(withNormalizedOffset:CGVector(dx:0.94,dy:0.4)),withVelocity:.slow,thenHoldForDuration:0)
+        XCTAssertTrue(app.buttons["资料照片"].waitForExistence(timeout:6),"Edge return should remain available")
+    }
     func openProfile() {
         let link=app.links["打开资料"]
         XCTAssertTrue(link.waitForExistence(timeout:5));link.tap()

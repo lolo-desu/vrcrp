@@ -55,6 +55,10 @@
       }, 2200);
     }
   }
+  window.__vrcrpCountersChanged = value => {
+    const count=value?.unreadMessages;if(!Number.isSafeInteger(count)||count<0||count>100000)return;
+    unread=count;window.__vrcrpChatUnread?.(count);post({kind:'counters',unread:count});
+  };
   function session(value) {
     const id = value?.id == null ? '' : String(value.id);
     if (id === userId) { if (id) postSession(); return; }
@@ -167,7 +171,7 @@
     clearTimeout(pollTimer);
     if (!userId || !active || document.hidden) return;
     if (busy) { if(delay<=350)syncAgain=true; return; }
-    pollTimer = setTimeout(async () => { await sync(); const urgent=syncAgain;syncAgain=false; schedule(Math.max(retryDelay,urgent?200:location.pathname==='/matches'?2000:/^\/matches\/[^/]+$/.test(location.pathname)?7000:10000)); }, delay);
+    pollTimer = setTimeout(async () => { await sync(); const urgent=syncAgain;syncAgain=false; schedule(Math.max(retryDelay,urgent?200:['/matches','/notifications','/me','/likes','/visitors'].includes(location.pathname)?2000:/^\/matches\/[^/]+$/.test(location.pathname)?4000:5000)); }, delay);
   }
   window.__vrcrpSyncChats = () => schedule(0);
   window.__vrcrpAppActive = value => { active = value === true; window.__vrcrpSiteCache?.active(active); if (active) schedule(0); else clearTimeout(pollTimer); };
@@ -182,7 +186,7 @@
         const h = new Headers(args[1]?.headers || (args[0] instanceof Request ? args[0].headers : {}));
         const mode = h.get('X-Content-Mode'), language = h.get('Accept-Language');
         const changed = mode && mode !== requestHeaders['X-Content-Mode'] || language && language !== requestHeaders['Accept-Language'];
-        if (['sfw','mixed','r18'].includes(mode)) requestHeaders['X-Content-Mode'] = mode;
+        if (['sfw','mixed','r18','nsfw'].includes(mode)) requestHeaders['X-Content-Mode'] = mode;
         if (language && language.length < 80) requestHeaders['Accept-Language'] = language;
         if(changed){epoch++;controller?.abort();retryDelay=0;if(userId){postSession();schedule(0);}}
       }
@@ -191,7 +195,8 @@
     if (url?.origin === location.origin) result.then(response => {
       if (owner !== epoch) return;
       if (url.pathname === '/api/v1/me' && response.status === 401 || url.pathname === '/api/v1/auth/logout' && response.ok) { session(null); return; }
-      if(response.ok && method==='POST' && /^\/api\/v1\/matches\/[^/]+\/(read|messages)$/.test(url.pathname))schedule(250);
+      if(response.ok && method==='POST' && (/^\/api\/v1\/matches\/[^/]+\/(read|messages)$/.test(url.pathname)||url.pathname==='/api/v1/notifications/read'||/^\/api\/v1\/announcements\/[^/]+\/read$/.test(url.pathname)))schedule(0);
+      if(response.ok && method==='GET' && ['/api/v1/likes/received','/api/v1/visitors'].includes(url.pathname))schedule(150);
       if (!response.ok || method !== 'GET') return;
       if (['/api/v1/me','/api/v1/me/counters','/api/v1/matches'].includes(url.pathname)) response.clone().json().then(data => {
         if (owner !== epoch) return;
@@ -215,7 +220,7 @@
           window.__vrcrpSiteCache?.serverEvent(value.type,value.data);
           if (value.type === 'counters') counters(value.data);
           else if (value.type === 'message.new') { if(!matches.get(value.data?.matchId)?.displayId && validId(value.data?.matchId)){const owner=epoch;hydrate(value.data.matchId).finally(()=>{if(owner===epoch)message(value.data);});}else message(value.data); if (location.pathname === '/matches') setTimeout(()=>refreshList(),0); schedule(150); }
-          else if (['match.new','match.updated','match.closed','message.recalled','presence.updated','account.updated'].includes(value.type)) { if(location.pathname==='/matches')refreshList(); schedule(150); }
+          else if (['match.new','match.updated','match.closed','message.recalled','presence.updated','account.updated','notification.new','like.received','like.new','visitor.new','announcement.new','announcement.changed','reconnected'].includes(value.type)) { if(location.pathname==='/matches')refreshList(); schedule(150); }
         } catch {} });
         connection.addEventListener('open',()=>schedule(0));
         connection.addEventListener('close',()=>schedule(1000));
@@ -226,4 +231,6 @@
   document.addEventListener('visibilitychange',()=>{ if (!document.hidden) schedule(0); else clearTimeout(pollTimer); });
   window.addEventListener('online',()=>schedule(0));
   window.addEventListener('popstate',()=>schedule(0));
+  window.addEventListener('pageshow',()=>schedule(0));
+  window.addEventListener('focus',()=>schedule(0));
 })();

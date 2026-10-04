@@ -6,7 +6,7 @@ const clone=value=>JSON.parse(JSON.stringify(value));
 function fixture(){
  const client=new QueryClient({defaultOptions:{queries:{retry:false,staleTime:Infinity,gcTime:Infinity}}});client.setQueryData(['me'],{id:'self'});
  const received=['peer-1','peer-2'].map(id=>({user:{id},createdAt:'2026-01-01'}));
- const server={received,sent:clone(received),visitors:[{user:{id:'visitor-1'},new:true}],matches:[{id:'thread-1',unreadCount:2}],posts:[{id:'post-1',text:'old'}],notifications:[{id:'notice-1',read:false}],profile:{id:'peer-1',displayName:'old',relation:{swiped:'none'}},failure:false};
+ const server={received,sent:clone(received),visitors:[{user:{id:'visitor-1'},new:true}],matches:[{id:'thread-1',unreadCount:2}],posts:[{id:'post-1',text:'old'}],notifications:[{id:'notice-1',read:false}],profile:{id:'peer-1',displayName:'old',relation:{swiped:'none'}},counters:{unreadMessages:7,newLikes:3,newVisitors:1,unreadNotifications:1},failure:false};
  const timers=new Map(),requests=[],held=[];let timerID=0,offset=0,holdRead=false;
  const document=new EventTarget();document.hidden=false;document.querySelectorAll=()=>[];document.getElementById=id=>id==='root'?{__reactContainer$fixture:{memoizedProps:{value:client}}}:null;
  const location={origin:'https://erp.sex',href:'https://erp.sex/likes',pathname:'/likes'};
@@ -20,10 +20,12 @@ function fixture(){
     const b=typeof options.body==='string'?JSON.parse(options.body):{};
     if(url.pathname==='/api/v1/swipes')server.received=server.received.filter(i=>i.user.id!==b.targetId);
     if(url.pathname.startsWith('/api/v1/likes/sent/')&&method==='DELETE')server.sent=server.sent.filter(i=>i.user.id!==url.pathname.split('/').at(-1));
+    if(url.pathname==='/api/v1/notifications/read'){server.notifications=server.notifications.map(i=>b.all||b.ids?.includes(i.id)?{...i,read:true}:i);server.counters.unreadNotifications=server.notifications.filter(i=>!i.read).length;}
+    if(url.pathname==='/api/v1/matches/thread-1/read'){server.matches=server.matches.map(i=>({...i,unreadCount:0}));server.counters.unreadMessages=5;}
     return response({ok:true});
    }
    const p=url.pathname;
-   const value=p.endsWith('/likes/received')?{items:server.received,nextCursor:null}:p.endsWith('/likes/sent')?{items:server.sent,nextCursor:null}:p.endsWith('/visitors')?{items:server.visitors,nextCursor:null}:p.endsWith('/matches')?{items:server.matches,nextCursor:null}:p.endsWith('/notifications')?{items:server.notifications,nextCursor:null}:p.endsWith('/posts')?{items:server.posts,nextCursor:null}:server.profile;
+   const value=p.endsWith('/me/counters')?server.counters:p.endsWith('/likes/received')?{items:server.received,nextCursor:null}:p.endsWith('/likes/sent')?{items:server.sent,nextCursor:null}:p.endsWith('/visitors')?{items:server.visitors,nextCursor:null}:p.endsWith('/matches')?{items:server.matches,nextCursor:null}:p.endsWith('/notifications')?{items:server.notifications,nextCursor:null}:p.endsWith('/posts')?{items:server.posts,nextCursor:null}:server.profile;
    return response(clone(value));
   };
   const value=run();let promise;
@@ -109,6 +111,33 @@ const pages=items=>({pages:[{items,nextCursor:null}],pageParams:[null]});
  const oldWarm=g.window.__vrcrpSiteCache.preloadLists();await tick();g.window.__vrcrpSiteCache.session('other');g.client.clear();g.client.setQueryData(['me'],{id:'other'});
  g.hold(false);for(const release of g.held.splice(0))release();await oldWarm;await tick();
  assert.equal(g.client.getQueryData(sentKey),undefined,'previous-account preload leaked');g.destroy();
- fs.mkdirSync(path.join(__dirname,'../build'),{recursive:true});fs.writeFileSync(path.join(__dirname,'../build/live-cache-verification.json'),JSON.stringify({queryCore:'5.104.1',checks:['fresh-query-refetch','successful-skip','failed-write','pagination-preserved','content-mode-isolation','stale-read-fence','cancel-sent-like','notification-read','request-coalescing','visible-page-polling','hidden-page-paused','resume-sync','editor-draft-source-preserved','account-isolation'],passed:true},null,2));
+ // Successful read updates shared counters immediately, preserving unseen chats.
+ const r=fixture();const badgeEvents=[];r.window.__vrcrpCountersChanged=v=>badgeEvents.push(clone(v));
+ r.server.matches=[{id:'thread-1',unreadCount:2,lastMessage:{id:'last-read',senderId:'peer',createdAt:'2026-01-01'}}];
+ r.query(['m','sfw','zh','matches','active'],'/api/v1/matches',pages(clone(r.server.matches)));
+ r.query(['notifications'],'/api/v1/notifications',pages(clone(r.server.notifications)));
+ r.client.setQueryData(['counters'],clone(r.server.counters));
+ r.hold(true);const oldCounters=r.get('/api/v1/me/counters'),oldList=r.get('/api/v1/matches');await tick();
+ await r.window.fetch('/api/v1/matches/thread-1/read',{method:'POST',body:JSON.stringify({lastMessageId:'last-read'})});await tick();
+ assert.equal(r.client.getQueryData(['counters']).unreadMessages,5,'read erased other conversation counts');
+ assert.equal(r.client.getQueryData(['m','sfw','zh','matches','active']).pages[0].items[0].unreadCount,0,'chat row remained unread');
+ await r.window.fetch('/api/v1/notifications/read',{method:'POST',body:JSON.stringify({ids:['notice-1']})});await tick();
+ assert.equal(r.client.getQueryData(['counters']).unreadNotifications,0,'header/Me counter did not clear');
+ r.hold(false);for(const release of r.held.splice(0))release();
+ assert.equal((await oldCounters).unreadMessages,5,'old counter response resurrected unread');
+ assert.equal((await oldList).items[0].unreadCount,0,'old list response resurrected unread');
+ assert.equal(badgeEvents.at(-1).unreadNotifications,0,'native counter bridge diverged');
+ // A later message is authoritative, even immediately after a read.
+ r.server.matches=[{id:'thread-1',unreadCount:1,lastMessage:{id:'next-unread',senderId:'peer',createdAt:'2026-01-02'}}];
+ r.server.counters.unreadMessages=6;r.window.__vrcrpSiteCache.commitCounters(clone(r.server.counters));r.window.__vrcrpSiteCache.commitMatches(clone({items:r.server.matches,nextCursor:null}));
+ assert.equal(r.client.getQueryData(['counters']).unreadMessages,6,'fresh unread was suppressed');
+ assert.equal(r.client.getQueryData(['m','sfw','zh','matches','active']).pages[0].items[0].unreadCount,1,'new message was marked read');
+ // Repeated acknowledgements and failures do not decrement unrelated reminders.
+ await r.window.fetch('/api/v1/notifications/read',{method:'POST',body:JSON.stringify({ids:['notice-1']})});await tick();
+ assert.equal(r.client.getQueryData(['counters']).unreadNotifications,0);
+ r.server.failure=true;r.client.setQueryData(['counters'],{...r.server.counters,unreadNotifications:3});
+ await r.window.fetch('/api/v1/notifications/read',{method:'POST',body:JSON.stringify({all:true})});await tick();
+ assert.equal(r.client.getQueryData(['counters']).unreadNotifications,3,'failed read cleared notifications');r.destroy();
+ fs.mkdirSync(path.join(__dirname,'../build'),{recursive:true});fs.writeFileSync(path.join(__dirname,'../build/live-cache-verification.json'),JSON.stringify({queryCore:'5.104.1',checks:['fresh-query-refetch','successful-skip','failed-write','pagination-preserved','content-mode-isolation','stale-read-fence','cancel-sent-like','notification-read','request-coalescing','visible-page-polling','hidden-page-paused','resume-sync','editor-draft-source-preserved','account-isolation','read-ack-shared-counters','late-counter-read-fence','late-list-read-fence','fresh-message-after-read','failed-read-preserves-badge'],passed:true},null,2));
  console.log('PASS: real QueryCore fresh refetch, successful/failed operations, loaded pages, mode isolation, stale-read race, sent-like/read patches, request coalescing, visible polling/resume and account isolation');
 })().catch(error=>{console.error(error);process.exitCode=1});
