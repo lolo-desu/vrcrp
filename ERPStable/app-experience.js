@@ -3,13 +3,17 @@
   const bridge = window.webkit?.messageHandlers?.erpNativeApp;
   if (window !== window.top || location.origin !== 'https://erp.sex' || !bridge) return;
   const tabPages = new Set(['/', '/discover', '/browse', '/likes', '/likes/sent', '/matches', '/posts', '/me']);
-  const roots = new Set([...tabPages, '/login', '/register']);
+  const roots = new Set([...tabPages, '/login', '/register'].filter(path=>path!=='/browse'));
+  const topPages = new Set(['/', '/discover', '/likes', '/likes/sent', '/matches', '/posts', '/me']);
+  const chatPath = path => /^\/matches\/[^/]+\/?$/.test(path);
+  window.__vrcrpIsTopPage = path => topPages.has(path);
   const refreshable = new Set(['/likes', '/likes/sent', '/matches', '/posts', '/visitors', '/notifications']);
   const css = `
     html[data-vrcrp-app="true"] .app-top {
       background: rgb(var(--surface)) !important;
       -webkit-backdrop-filter: none !important; backdrop-filter: none !important;
     }
+    html[data-vrcrp-top-level="false"] .app-top { display:none !important; }
     html[data-vrcrp-native-nav="true"] .app-bottom { opacity: 0 !important; }
     html[data-vrcrp-detail="true"] .app-bottom,
     html[data-vrcrp-keyboard="true"] .app-bottom { visibility: hidden !important; pointer-events: none !important; }
@@ -107,7 +111,7 @@
   let surfaceFingerprint = '';
   function updateTopSurface() {
     const header=document.querySelector('[data-vrcrp-chat-bar]')||document.querySelector('.app-top');
-    if(header&&!document.querySelector('[data-vrcrp-profile-overlay],[role="dialog"],dialog[open]')) {
+    if(header&&getComputedStyle(header).display!=='none'&&getComputedStyle(header).visibility!=='hidden'&&!document.querySelector('[data-vrcrp-profile-overlay],[role="dialog"],dialog[open]')) {
       const color=rgba(getComputedStyle(header).backgroundColor);
       if(color[3]>.99){const fp=JSON.stringify(color);if(fp!==surfaceFingerprint){surfaceFingerprint=fp;post({kind:'topSurface',color});}return;}
     }
@@ -402,7 +406,7 @@
     if(path==='/posts'||/^\/posts\//.test(path))body.style.maxWidth='768px';
     if(path==='/browse')body.style.maxWidth='1280px';
     body.insertAdjacentHTML('beforeend',skeletonBody(path));
-    if(!auth)shell.append(top);else body.style.maxWidth='448px';
+    if(!auth&&(chat||topPages.has(path)))shell.append(top);else if(auth)body.style.maxWidth='448px';
     shell.append(body);document.body.append(shell);placeholder=shell;
     for(const el of top.querySelectorAll('*')){if(el.closest('svg')&&!el.matches('svg'))continue;el.dataset.vrcrpShape='';if(!el.children.length&&el.textContent.trim()&&!el.closest('svg'))el.dataset.vrcrpFixedText='true';}
     if(path==='/discover'||path==='/'){const nav=document.querySelector('.app-bottom');body.style.setProperty('--vrcrp-placeholder-nav-height',`${nav?.getBoundingClientRect().height||74}px`);}
@@ -555,6 +559,8 @@
   function announceRoute() {
     generation++;settleGeneration++;
     paintMemo=null;
+    document.documentElement.dataset.vrcrpTopLevel=String(topPages.has(location.pathname));
+    window.__vrcrpRefreshSurface?.();
     if(location.pathname!==lastPath||!ready)installPlaceholder(location.pathname);
     const theme=getComputedStyle(document.documentElement),surface=rgba('rgb('+ (theme.getPropertyValue('--surface').trim()||'255 255 255') +')'),canvas=rgba('rgb('+ (theme.getPropertyValue('--bg').trim()||'245 245 245') +')'),ink=rgba('rgb('+ (theme.getPropertyValue('--fg').trim()||'35 35 35') +')');
     post({ kind: 'route', path: location.pathname, entryKey:entryKey(),parentKey:index>0?String(entryKeys[index-1]):null,parentPath:index>0?entries[index-1].split('?')[0]:null,ancestors:entryKeys.slice(Math.max(0,index-24),index),direction,showTabs: tabPages.has(location.pathname),title:pageTitle(location.pathname),surfaceColor:surface,canvasColor:canvas,inkColor:ink,placeholderLayout:placeholderLayout(),canGoBack: index > 0 && !roots.has(location.pathname), refreshable: refreshable.has(location.pathname) });
@@ -571,6 +577,7 @@
     if (!root || !document.head) return;
     root.dataset.vrcrpApp = 'true';
     root.dataset.vrcrpDetail = String(!tabPages.has(location.pathname));
+    root.dataset.vrcrpTopLevel = String(topPages.has(location.pathname));
     root.dataset.vrcrpExploreGrid = String(location.pathname === '/browse');
     if (!document.getElementById('vrcrp-app-surfaces')) {
       const style = document.createElement('style'); style.id = 'vrcrp-app-surfaces'; style.textContent = css; document.head.appendChild(style);
@@ -714,6 +721,15 @@
     window.dispatchEvent(new PopStateEvent('popstate', { state }));
   };
   const replaceEntry=history.replaceState.bind(history);
+  const pushEntry=history.pushState.bind(history);
+  // Normalize a cold deep link before React constructs its browser history.
+  // It then reads the correct index and never sees an intermediate list.
+  if(chatPath(location.pathname)&&index===0){
+    const path=location.pathname+location.search,state=history.state||{},idx=Number.isInteger(state.idx)?state.idx:baseIndex;
+    const parent={usr:null,key:'vr-matches-'+Math.random().toString(36).slice(2),idx};
+    replaceEntry(parent,'','/matches');pushEntry({...state,key:state.key||entryKey(),idx:idx+1},'',path);
+    entries=['/matches',path];entryKeys=[parent.key,history.state.key];index=1;baseIndex=idx;
+  }
   const editorPath=path=>/^\/profile\/edit(?:\/|$)/.test(path);
   for (const method of ['pushState', 'replaceState']) {
     const original = history[method];
@@ -721,15 +737,27 @@
       let nextPath;try{nextPath=new URL(args[2] || location.href,location.href).pathname;}catch{nextPath=location.pathname;}
       const changed=nextPath!==location.pathname;
       const sibling=changed&&editorPath(nextPath)&&editorPath(location.pathname);
+      const chatSibling=changed&&chatPath(nextPath)&&chatPath(location.pathname);
+      const enteringChat=changed&&chatPath(nextPath)&&!chatSibling;
       if(changed) {
         backQueue=0;forwardIntent=null;
         direction=sibling?'tab':roots.has(nextPath)?(roots.has(location.pathname)?'tab':'pop'):'push';
         willNavigate(nextPath,direction);
       }
-      if(sibling&&args[0]&&typeof args[0]==='object')args[0]={...args[0],idx:history.state?.idx??baseIndex+index};
-      const result = sibling?replaceEntry(...args):Reflect.apply(original, this, args);
+      if(enteringChat){
+        // Notifications and links from any tab must not attach a conversation
+        // to the unrelated page currently on screen. Rebase that entry onto
+        // the list without changing React Router's expected history index.
+        if(location.pathname!=='/matches'){
+          const parent={usr:null,key:'vr-matches-'+Math.random().toString(36).slice(2),idx:history.state?.idx??baseIndex+index};
+          replaceEntry(parent,'','/matches');entries[index]='/matches';entryKeys[index]=parent.key;
+        }
+        args[0]={...(args[0]||{}),idx:(history.state?.idx??baseIndex+index)+1};
+      }
+      if((sibling||chatSibling)&&args[0]&&typeof args[0]==='object')args[0]={...args[0],idx:history.state?.idx??baseIndex+index};
+      const result = sibling||chatSibling?replaceEntry(...args):enteringChat?pushEntry(...args):Reflect.apply(original, this, args);
       const path = location.pathname + location.search;
-      if (method === 'pushState'&&!sibling) { entries.splice(index + 1);entryKeys.splice(index+1); entries.push(path);entryKeys.push(history.state?.key || 'vr-'+Math.random().toString(36).slice(2)); index++; }
+      if (enteringChat||method === 'pushState'&&!sibling&&!chatSibling) { entries.splice(index + 1);entryKeys.splice(index+1); entries.push(path);entryKeys.push(history.state?.key || 'vr-'+Math.random().toString(36).slice(2)); index++; }
       else { entries[index] = path;entryKeys[index]=history.state?.key || entryKeys[index]; if (index === 0 && Number.isInteger(history.state?.idx)) baseIndex = history.state.idx; }
       if(changed)pendingRestore=sibling?null:views.get(entryKey()) || pathViews.get(location.pathname) || null;
       // Tell UIKit the new history key before waiting for a paint frame.

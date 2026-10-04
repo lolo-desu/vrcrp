@@ -7,6 +7,7 @@
   const post=value=>{try{window.webkit?.messageHandlers?.erpNativeApp?.postMessage({...value,entryKey:window.__vrcrpEntryKey?.()||history.state?.key});}catch{}};
   const editing=()=>/^\/profile\/edit(?:\/|$)/.test(location.pathname);
   const chat=()=>/^\/matches\/[^/]+\/?$/.test(location.pathname);
+  const detail=()=>window.__vrcrpIsTopPage&&!window.__vrcrpIsTopPage(location.pathname)&&!chat()&&!['/login','/register'].includes(location.pathname);
   let unread=0,queued=false,overlay=null,lastOverlay=false,lastHeader='';
   let sheet=null,sheetGesture=null,sheetMotion=null,suppressedClick=null;
   const visible=el=>{const r=el.getBoundingClientRect();return el.isConnected&&r.width>0&&r.height>0&&getComputedStyle(el).visibility!=='hidden';};
@@ -18,7 +19,7 @@
     const panel=panels.at(-1),host=panel?.closest('[data-dialog]');
     const header=panel?.firstElementChild;
     const close=header&&!header.hasAttribute('data-dialog-body')?header.querySelector(':scope > button[aria-label]'):null;
-    const next=panel&&close&&innerWidth<640&&getComputedStyle(host).alignItems==='flex-end'?panel:null;
+    const next=panel&&close&&!panel.hasAttribute('data-vrcrp-explore-profile')&&innerWidth<640&&getComputedStyle(host).alignItems==='flex-end'?panel:null;
     if(next===sheet)return;
     restoreSheet(sheetGesture);restoreSheet(sheetMotion);sheetGesture=null;sheetMotion=null;
     sheet?.removeEventListener('touchmove',moveSheetTouches,true);
@@ -114,6 +115,8 @@
   window.addEventListener('blur',()=>{restoreSheet(sheetGesture);restoreSheet(sheetMotion);sheetGesture=null;sheetMotion=null;});
   const backIcon='<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="m15 5-7 7 7 7"/></svg>';
   const css=`
+    html[data-vrcrp-top-level="false"] .app-top{display:none!important}
+    html[data-vrcrp-profile-open="true"] .app-top{visibility:hidden!important}
     html[data-vrcrp-chat-toolbar="true"] .app-top{display:none!important}
     html[data-vrcrp-chat-toolbar="true"] #main{padding-top:0!important}
     [data-vrcrp-chat-bar]{position:sticky!important;top:0;z-index:45;flex-shrink:0;background:rgb(var(--surface))!important;border-radius:0!important;border-top:0!important;border-left:0!important;border-right:0!important;min-height:56px}
@@ -125,7 +128,26 @@
     button[data-vrcrp-page-back]{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;background:transparent;color:inherit;border:0;border-radius:10px;touch-action:manipulation}
     #main[data-vrcrp-pulling]{transform:translateY(var(--vrcrp-pull-space,0px))}
     [data-vrcrp-install]{display:none!important}
+    @keyframes vrcrp-profile-push{from{transform:translate3d(100%,0,0)}to{transform:translate3d(0,0,0)}}
+    [data-vrcrp-explore-profile="true"]{animation:vrcrp-profile-push 240ms cubic-bezier(.2,.8,.2,1)}
+    @media(prefers-reduced-motion:reduce){[data-vrcrp-explore-profile="true"]{animation:none}}
   `;
+  function refreshProfileOverlay(){
+    const main=document.getElementById('main');
+    let next=['/discover','/browse','/visitors','/likes','/likes/sent'].includes(location.pathname)?main?.querySelector('.fixed.inset-0.overflow-y-auto.overscroll-contain'):null;
+    if(next&&!next.querySelector('.sticky button'))next=null;
+    if(!next&&location.pathname==='/discover'&&new URL(location.href).searchParams.has('u'))next=document.querySelector('[data-dialog] .dialog-panel[role="dialog"]');
+    overlay=next;
+    if(overlay){
+      overlay.dataset.vrcrpProfileOverlay='true';
+      if(location.pathname==='/discover'&&!overlay.hasAttribute('data-vrcrp-explore-profile'))overlay.dataset.vrcrpExploreProfile='true';
+    }
+    for(const el of document.querySelectorAll('[data-vrcrp-profile-overlay]'))if(el!==overlay){el.removeAttribute('data-vrcrp-profile-overlay');el.removeAttribute('data-vrcrp-explore-profile');}
+    // A fixed profile already covers the header. Hide it visually without
+    // removing its layout space, which would move the cached list behind it.
+    document.documentElement.dataset.vrcrpProfileOpen=String(!!overlay);
+    const shown=!!overlay;if(shown!==lastOverlay){lastOverlay=shown;post({kind:'profileOverlay',visible:shown});}
+  }
   function chatHeader(main){
     if(!main?.querySelector('textarea,.messages,.card.relative.min-h-0.flex-1.overflow-y-auto'))return null;
     const link=main?.querySelector('a[href^="/u/"]');
@@ -146,21 +168,23 @@
     const group=heading.closest('.flex.items-center')||heading.parentElement.parentElement;
     const original=[...group.querySelectorAll('button')].find(b=>/^(返回|返回上一页|上一頁|返回上頁|back|go back)$/i.test((b.getAttribute('aria-label')||b.title||'').trim()));
     if(original){original.dataset.vrcrpPageBack='true';return;}
-    if(!editing()&&!/^\/u\/[^/]+/.test(location.pathname))return;
+    if(!detail())return;
     if(main.querySelector('[data-vrcrp-page-back]'))return;
     const button=document.createElement('button');button.type='button';button.dataset.vrcrpPageBack='true';button.dataset.vrcrpInjectedBack='true';button.setAttribute('aria-label','返回');button.innerHTML=backIcon;
     button.addEventListener('click',()=>{if(!window.__vrcrpBack?.())window.__vrcrpOpenRoot?.('/me');});
     if(group.classList.contains('flex')&&group.classList.contains('items-center'))group.prepend(button);
-    else{const strip=document.createElement('div');strip.dataset.vrcrpBackStrip='true';const label=document.createElement('span');label.textContent=editing()?'编辑名片':'名片详情';strip.append(button,label);main.prepend(strip);}
+    else{const strip=document.createElement('div');strip.dataset.vrcrpBackStrip='true';const label=document.createElement('span');label.textContent=heading.textContent.trim();strip.append(button,label);main.prepend(strip);}
   }
   function update(){
     queued=false;const root=document.documentElement;if(!root||!document.head)return;
     if(!document.getElementById('vrcrp-page-surfaces')){const style=document.createElement('style');style.id='vrcrp-page-surfaces';style.textContent=css;document.head.appendChild(style);}
     root.dataset.vrcrpChat=String(chat());const main=document.getElementById('main');
-    if(!editing()&&!/^\/u\/[^/]+/.test(location.pathname)){
+    if(window.__vrcrpIsTopPage)root.dataset.vrcrpTopLevel=String(window.__vrcrpIsTopPage(location.pathname));
+    refreshProfileOverlay();
+    if(!detail()){
       for(const el of document.querySelectorAll('[data-vrcrp-back-strip],[data-vrcrp-injected-back]'))el.remove();
-    }else for(const strip of document.querySelectorAll('[data-vrcrp-back-strip]')){const label=strip.querySelector('span');const title=editing()?'编辑名片':'名片详情';if(label&&label.textContent!==title)label.textContent=title;}
-    const header=chat()?chatHeader(main):document.querySelector('.app-top');
+    }else for(const strip of document.querySelectorAll('[data-vrcrp-back-strip]')){const label=strip.querySelector('span');const title=main?.querySelector('h1')?.textContent.trim();if(label&&title&&label.textContent!==title)label.textContent=title;}
+    const header=overlay?.querySelector('.sticky,[data-dialog] .dialog-panel > :first-child')||(chat()?chatHeader(main):root.dataset.vrcrpTopLevel==='true'?document.querySelector('.app-top'):main?.querySelector('[data-vrcrp-back-strip],.page-heading,.heading'));
     for(const el of document.querySelectorAll('[data-vrcrp-chat-bar]'))if(!chat()||el!==header){el.removeAttribute('data-vrcrp-chat-bar');el.style.removeProperty('--vrcrp-chat-bleed-left');el.style.removeProperty('--vrcrp-chat-bleed-right');}
     for(const button of document.querySelectorAll('[data-vrcrp-chat-back]'))if(!chat()||!header?.contains(button)){
       const label=button.dataset.vrcrpBackLabel;if(label&&button.getAttribute('aria-label')?.includes('条未读消息'))button.setAttribute('aria-label',label);
@@ -175,13 +199,8 @@
       const back=header.querySelector('button');if(back){back.dataset.vrcrpChatBack='true';updateUnread();}
     }
     pageBack(main);
-    overlay=['/discover','/browse','/visitors','/likes','/likes/sent'].includes(location.pathname)?main?.querySelector('.fixed.inset-0.overflow-y-auto.overscroll-contain'):null;
-    if(overlay&&!overlay.querySelector('.sticky button'))overlay=null;
-    if(overlay)overlay.dataset.vrcrpProfileOverlay='true';
-    for(const el of document.querySelectorAll('[data-vrcrp-profile-overlay]'))if(el!==overlay)el.removeAttribute('data-vrcrp-profile-overlay');
-    const visible=!!overlay;if(visible!==lastOverlay){lastOverlay=visible;post({kind:'profileOverlay',visible});}
     refreshSheet();
-    if(header){const r=header.getBoundingClientRect(),style=getComputedStyle(header);const values=style.backgroundColor.match(/[\d.]+/g)?.map(Number)||[255,255,255,1];const geometry={kind:'pageHeader',height:Math.max(0,r.height),color:[values[0]/255,values[1]/255,values[2]/255,values[3]??1]};const fp=JSON.stringify(geometry);if(fp!==lastHeader){lastHeader=fp;post(geometry);}}
+    {const r=header?.getBoundingClientRect(),style=header?getComputedStyle(header):null;const raw=style?.backgroundColor&&style.backgroundColor!=='rgba(0, 0, 0, 0)'?style.backgroundColor:'rgb('+(getComputedStyle(root).getPropertyValue('--bg').trim()||'255 255 255')+')';const values=raw.match(/[\d.]+/g)?.map(Number)||[255,255,255,1];const geometry={kind:'pageHeader',height:Math.max(0,r?.height||0),color:[values[0]/255,values[1]/255,values[2]/255,values[3]??1]};const fp=JSON.stringify(geometry);if(fp!==lastHeader){lastHeader=fp;post(geometry);}}
     for(const button of document.querySelectorAll('button,[role="button"],a')){
       if(button.closest('[data-vrcrp-install]'))continue;
       const title=(button.getAttribute('aria-label')||button.textContent||'').trim();
@@ -191,7 +210,7 @@
   function schedule(){if(!queued){queued=true;requestAnimationFrame(update);}}
   window.__vrcrpRefreshSurface=update;
   window.__vrcrpCloseProfileOverlay=()=>{
-    update();const close=overlay?.querySelector('.sticky button');if(!close)return false;
+    update();const close=overlay?.querySelector('.sticky button')||overlay?.firstElementChild?.querySelector(':scope > button[aria-label]');if(!close)return false;
     document.activeElement?.blur?.();close.click();queueMicrotask(update);
     const key=window.__vrcrpEntryKey?.();requestAnimationFrame(()=>requestAnimationFrame(()=>{if(key===window.__vrcrpEntryKey?.())post({kind:'pagePainted'});}));return true;
   };
@@ -204,6 +223,6 @@
   };
   window.__vrcrpPullSurface=space=>{const main=document.getElementById('main');if(!main)return;const amount=Math.max(0,Math.min(72,Number(space)||0));main.style.transition=amount||matchMedia('(prefers-reduced-motion: reduce)').matches?'none':'transform 160ms ease-out';main.style.setProperty('--vrcrp-pull-space',`${amount}px`);if(amount)main.dataset.vrcrpPulling='true';else main.removeAttribute('data-vrcrp-pulling');};
   document.addEventListener('click',event=>{if(event.target.closest?.('[data-vrcrp-chat-back],[data-vrcrp-page-back]')&&window.__vrcrpBack?.()){event.preventDefault();event.stopImmediatePropagation();}},true);
-  new MutationObserver(records=>{if(records.some(r=>r.type==='childList'))refreshSheet();if(records.some(r=>r.type!=='attributes'||!r.attributeName.startsWith('data-vrcrp')))schedule();}).observe(document,{subtree:true,childList:true,attributes:true,attributeFilter:['class','aria-label','data-vrcrp-chat'],characterData:true});
+  new MutationObserver(records=>{if(records.some(r=>r.type==='childList')){refreshProfileOverlay();refreshSheet();}if(records.some(r=>r.type!=='attributes'||!r.attributeName.startsWith('data-vrcrp')))schedule();}).observe(document,{subtree:true,childList:true,attributes:true,attributeFilter:['class','aria-label','data-vrcrp-chat'],characterData:true});
   window.addEventListener('popstate',schedule);window.addEventListener('resize',schedule);schedule();
 })();

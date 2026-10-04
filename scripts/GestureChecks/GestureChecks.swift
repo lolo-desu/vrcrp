@@ -106,4 +106,27 @@ final class GestureChecks: XCTestCase {
         app.buttons["喜欢资料照片"].coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.4)).press(forDuration:0.05,thenDragTo:app.coordinate(withNormalizedOffset:CGVector(dx:0.5,dy:0.92)),withVelocity:.slow,thenHoldForDuration:0)
         assertSheetClosed()
     }
+    func externalEdgeDrag(_ end:CGFloat) {
+        app.coordinate(withNormalizedOffset:CGVector(dx:0.008,dy:0.45)).press(forDuration:0.05,thenDragTo:app.coordinate(withNormalizedOffset:CGVector(dx:end,dy:0.45)),withVelocity:.slow,thenHoldForDuration:0.2)
+    }
+    func testExternalRootSwipeCancellationAndReturn() {
+        app.links["外链测试"].tap()
+        XCTAssertTrue(app.staticTexts["External A"].firstMatch.waitForExistence(timeout:8))
+        externalEdgeDrag(0.16)
+        XCTAssertTrue(app.buttons["关闭外部网站"].exists,"Short external swipe must cancel")
+        externalEdgeDrag(0.92)
+        XCTAssertTrue(app.staticTexts["资料已就绪"].waitForExistence(timeout:5))
+        XCTAssertFalse(app.buttons["关闭外部网站"].exists,"Root swipe did not return to the app")
+    }
+    func testExternalHistorySwipeThenReturnToApp() {
+        app.links["外链测试"].tap()
+        let next=app.links["Next page"]
+        XCTAssertTrue(next.waitForExistence(timeout:8));next.tap()
+        XCTAssertTrue(app.staticTexts["External B"].firstMatch.waitForExistence(timeout:8))
+        externalEdgeDrag(0.92)
+        XCTAssertTrue(app.staticTexts["External A"].firstMatch.waitForExistence(timeout:5))
+        XCTAssertTrue(app.buttons["关闭外部网站"].exists,"History swipe closed the browser")
+        externalEdgeDrag(0.92)
+        XCTAssertTrue(app.staticTexts["资料已就绪"].waitForExistence(timeout:5))
+    }
 }

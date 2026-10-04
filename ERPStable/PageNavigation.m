@@ -88,7 +88,7 @@
     for(NSString *key in self.ancestors){if(cost<=40*1024*1024)break;if([key isEqual:self.parentKey]||[key isEqual:self.currentKey])continue;VRPageImage *page=self.retainedPages[key];cost-=page.cost;[self.retainedPages removeObjectForKey:key];}
 }
 - (BOOL)canPreviewParent { return [self pageForKey:self.parentKey]!=nil; }
-- (BOOL)canPreviewOverlay { return [self pageForKey:self.currentKey]!=nil; }
+- (BOOL)canPreviewOverlay { return [self pageForKey:self.currentKey]!=nil||[self pageForKey:self.paths[self.currentPath]]!=nil; }
 - (UIColor *)color:(id)value fallback:(UIColor *)fallback {
     if(![value isKindOfClass:NSArray.class]||[value count]!=4)return fallback;
     for(id component in value)if(![component isKindOfClass:NSNumber.class]||!isfinite([component doubleValue])||[component doubleValue]<0||[component doubleValue]>1)return fallback;
@@ -113,7 +113,14 @@
     NSUInteger cost=0;for(VRPageImage *page in self.retainedPages.allValues)cost+=page.cost;
     // Pin the actual return stack, starting with the nearest parent. NSCache
     // eviction alone must not turn a recently visited parent into a blank page.
-    for(NSString *key in safe.reverseObjectEnumerator){VRPageImage *page=[self pageForKey:key];if(page&&!self.retainedPages[key]&&cost+page.cost<=40*1024*1024){self.retainedPages[key]=page;cost+=page.cost;}}
+    for(NSString *key in safe.reverseObjectEnumerator){
+        VRPageImage *page=[self pageForKey:key];
+        if(!page&&[key isEqual:model[@"parentKey"]]&&self.parentPath){
+            VRPageImage *cached=[self pageForKey:self.paths[self.parentPath]];
+            if([cached.path isEqual:self.parentPath])page=cached;
+        }
+        if(page&&!self.retainedPages[key]&&cost+page.cost<=40*1024*1024){self.retainedPages[key]=page;cost+=page.cost;}
+    }
 }
 - (CGRect)surfaceRect:(id)value {
     if(![value isKindOfClass:NSDictionary.class])return CGRectZero;
@@ -192,7 +199,9 @@
         [canvas setFill];UIRectFill(CGRectMake(0,0,size.width,size.height));
         NSDictionary *layout=self.placeholderLayouts[path];
         if(layout&&fabs([layout[@"width"] doubleValue]-size.width)<2&&[layout[@"layers"] count]){[self drawSurfaceLayout:layout context:ctx.CGContext];return;}
-        [paper setFill];UIRectFill(CGRectMake(0,0,size.width,56));
+        BOOL globalHeader=[@[@"/",@"/discover",@"/likes",@"/likes/sent",@"/matches",@"/posts",@"/me"] containsObject:path];
+        BOOL chatHeader=[path rangeOfString:@"^/matches/[^/]+/?$" options:NSRegularExpressionSearch].location!=NSNotFound;
+        if(globalHeader||chatHeader){[paper setFill];UIRectFill(CGRectMake(0,0,size.width,56));}
         void(^block)(CGRect,CGFloat)=^(CGRect rect,CGFloat radius){[[ink colorWithAlphaComponent:.1] setFill];[[UIBezierPath bezierPathWithRoundedRect:rect cornerRadius:radius] fill];};
         void(^card)(CGRect)=^(CGRect rect){[paper setFill];UIBezierPath *shape=[UIBezierPath bezierPathWithRoundedRect:rect cornerRadius:16];[shape fill];[[ink colorWithAlphaComponent:.12] setStroke];shape.lineWidth=1;[shape stroke];};
         BOOL chat=[path rangeOfString:@"^/matches/[^/]+/?$" options:NSRegularExpressionSearch].location!=NSNotFound;
@@ -390,6 +399,7 @@
     BOOL foreground=self.handoff,painted=self.routeReady;UIImage *front=self.handoffView.image;UIColor *frontColor=self.handoffView.backgroundColor;
     if(self.transitioning||self.handoff)[self complete];
     VRPageImage *target=[self pageForKey:key];
+    if(!target&&[key isEqual:self.currentKey])target=[self pageForKey:self.paths[self.currentPath]];
     [self layout];self.generation++;
     // A cold/evicted snapshot reduces preview detail, never back availability.
     self.underlay.image=target.image?:[self placeholderForPath:target.path?:self.parentPath?:self.currentPath];self.underlay.backgroundColor=target.header?:self.header.backgroundColor;self.underlay.hidden=NO;self.previewKey=key;

@@ -6,7 +6,7 @@ const clone=value=>JSON.parse(JSON.stringify(value));
 function fixture(){
  const client=new QueryClient({defaultOptions:{queries:{retry:false,staleTime:Infinity,gcTime:Infinity}}});client.setQueryData(['me'],{id:'self'});
  const received=['peer-1','peer-2'].map(id=>({user:{id},createdAt:'2026-01-01'}));
- const server={received,sent:clone(received),posts:[{id:'post-1',text:'old'}],notifications:[{id:'notice-1',read:false}],profile:{id:'peer-1',displayName:'old',relation:{swiped:'none'}},failure:false};
+ const server={received,sent:clone(received),visitors:[{user:{id:'visitor-1'},new:true}],matches:[{id:'thread-1',unreadCount:2}],posts:[{id:'post-1',text:'old'}],notifications:[{id:'notice-1',read:false}],profile:{id:'peer-1',displayName:'old',relation:{swiped:'none'}},failure:false};
  const timers=new Map(),requests=[],held=[];let timerID=0,offset=0,holdRead=false;
  const document=new EventTarget();document.hidden=false;document.querySelectorAll=()=>[];document.getElementById=id=>id==='root'?{__reactContainer$fixture:{memoizedProps:{value:client}}}:null;
  const location={origin:'https://erp.sex',href:'https://erp.sex/likes',pathname:'/likes'};
@@ -23,7 +23,7 @@ function fixture(){
     return response({ok:true});
    }
    const p=url.pathname;
-   const value=p.endsWith('/likes/received')?{items:server.received,nextCursor:null}:p.endsWith('/likes/sent')?{items:server.sent,nextCursor:null}:p.endsWith('/notifications')?{items:server.notifications,nextCursor:null}:p.endsWith('/posts')?{items:server.posts,nextCursor:null}:server.profile;
+   const value=p.endsWith('/likes/received')?{items:server.received,nextCursor:null}:p.endsWith('/likes/sent')?{items:server.sent,nextCursor:null}:p.endsWith('/visitors')?{items:server.visitors,nextCursor:null}:p.endsWith('/matches')?{items:server.matches,nextCursor:null}:p.endsWith('/notifications')?{items:server.notifications,nextCursor:null}:p.endsWith('/posts')?{items:server.posts,nextCursor:null}:server.profile;
    return response(clone(value));
   };
   const value=run();let promise;
@@ -84,7 +84,27 @@ const pages=items=>({pages:[{items,nextCursor:null}],pageParams:[null]});
  assert(!f.requests.some(r=>r.url==='/api/v1/me/profile'&&r.method==='GET'),'passive refresh reread editor draft source');
  // Mutation response from an earlier account cannot affect the current one.
  f.hold(true);const late=f.get('/api/v1/likes/received');f.window.__vrcrpSiteCache.session('other');f.client.setQueryData(['me'],{id:'other'});f.hold(false);for(const release of f.held.splice(0))release();await late;await tick();
- assert.equal(f.timers.size,0);f.destroy();
+ assert([...f.timers.values()].every(t=>t.delay===250),'previous account left sync work active');f.destroy();assert.equal(f.timers.size,0);
+ // Warm unread lists before visiting their tabs; preloading never marks seen.
+ const g=fixture();
+ g.window.__vrcrpSiteCache.commitCounters({unreadMessages:2,newLikes:3,newVisitors:1,unreadNotifications:1});
+ await g.window.__vrcrpSiteCache.preloadLists();await tick();
+ assert.equal(g.client.getQueryData(likesKey).pages[0].items[0].user.id,'peer-1');
+ assert.equal(g.client.getQueryData(sentKey).pages[0].items.length,2);
+ assert.equal(g.client.getQueryData(['m','sfw','zh','visitors']).pages[0].items[0].new,true);
+ assert.equal(g.client.getQueryData(['m','sfw','zh','matches','active']).pages[0].items[0].unreadCount,2);
+ assert.equal(g.client.getQueryData(['notifications']).pages[0].items[0].read,false);
+ assert.equal(g.client.getQueryData(['counters']).newLikes,3);
+ assert(g.requests.every(r=>r.method==='GET'),'preload marked an unseen list as read');
+ const warmed=g.requests.length;await g.window.__vrcrpSiteCache.preloadLists();assert.equal(g.requests.length,warmed,'warm lists were repeatedly fetched');
+ g.server.received=[{user:{id:'new-background-like'}}];g.window.__vrcrpSiteCache.serverEvent('like.received',{});
+ await g.run(250);assert.equal(g.client.getQueryData(likesKey).pages[0].items[0].user.id,'new-background-like','inactive liked list missed event');
+ g.document.hidden=true;g.document.dispatchEvent(new Event('visibilitychange'));const asleep=g.requests.length;
+ await g.window.__vrcrpSiteCache.preloadLists();assert.equal(g.requests.length,asleep,'hidden app warmed lists');
+ g.document.hidden=false;g.client.clear();g.client.setQueryData(['me'],{id:'self'});g.hold(true);
+ const oldWarm=g.window.__vrcrpSiteCache.preloadLists();await tick();g.window.__vrcrpSiteCache.session('other');g.client.clear();g.client.setQueryData(['me'],{id:'other'});
+ g.hold(false);for(const release of g.held.splice(0))release();await oldWarm;await tick();
+ assert.equal(g.client.getQueryData(likesKey),undefined,'previous-account preload leaked');g.destroy();
  fs.mkdirSync(path.join(__dirname,'../build'),{recursive:true});fs.writeFileSync(path.join(__dirname,'../build/live-cache-verification.json'),JSON.stringify({queryCore:'5.104.1',checks:['fresh-query-refetch','successful-skip','failed-write','pagination-preserved','content-mode-isolation','stale-read-fence','cancel-sent-like','notification-read','request-coalescing','visible-page-polling','hidden-page-paused','resume-sync','editor-draft-source-preserved','account-isolation'],passed:true},null,2));
  console.log('PASS: real QueryCore fresh refetch, successful/failed operations, loaded pages, mode isolation, stale-read race, sent-like/read patches, request coalescing, visible polling/resume and account isolation');
 })().catch(error=>{console.error(error);process.exitCode=1});

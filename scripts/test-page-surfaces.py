@@ -32,7 +32,8 @@ with sync_playwright() as p:
  page.evaluate('__vrcrpChatUnread(100)');assert page.locator('[data-vrcrp-unread]').inner_text()=='99+'
  page.evaluate('__vrcrpChatUnread(0)');assert not page.locator('[data-vrcrp-unread]').is_visible()
  page.locator('a[href="/u/peer"]').click();page.wait_for_selector('[data-vrcrp-page-back]');page.evaluate('__vrcrpPageBack()');page.wait_for_function("location.pathname==='/matches/thread'")
- page.locator('[data-vrcrp-chat-back]').click();page.wait_for_function("location.pathname==='/me'")
+ page.locator('[data-vrcrp-chat-back]').click();page.wait_for_function("location.pathname==='/matches'")
+ assert not page.evaluate('__vrcrpBack()'),'chat returned to an unrelated origin instead of its list root'
  page.evaluate("__surfaceOpen('/matches')");page.wait_for_timeout(100);before=page.locator('.app-top').bounding_box()
  page.evaluate('__vrcrpPullSurface(66)');assert page.locator('.app-top').bounding_box()==before
  assert page.locator('#main').evaluate('e=>getComputedStyle(e).transform')=='matrix(1, 0, 0, 1, 0, 66)'
@@ -45,8 +46,16 @@ with sync_playwright() as p:
  page.evaluate("document.querySelector('.app-top').style.removeProperty('transform');document.documentElement.style.setProperty('--surface','255 255 255')")
  page.evaluate('__vrcrpPullSurface(0)');page.wait_for_timeout(200)
  page.evaluate("__surfaceOpen('/discover')");page.wait_for_timeout(100);page.evaluate('__surfaceOverlay()');page.wait_for_function("nativeMessages.some(m=>m.kind==='profileOverlay'&&m.visible)")
- page.wait_for_selector('[data-vrcrp-profile-overlay]');assert page.evaluate('__vrcrpPageBack()')
+ page.wait_for_selector('[data-vrcrp-profile-overlay]')
+ assert page.locator('[data-vrcrp-profile-overlay]').evaluate("e=>getComputedStyle(e).animationName")=='vrcrp-profile-push'
+ assert not page.locator('.app-top').is_visible()
+ assert page.evaluate('__vrcrpPageBack()')
  page.wait_for_function("nativeMessages.filter(m=>m.kind==='profileOverlay').at(-1).visible===false")
  assert page.evaluate('location.pathname')=='/discover'
+ assert page.locator('.app-top').is_visible()
+ for path in ['/settings','/settings/privacy','/notifications','/posts/detail','/u/peer','/profile/edit/basics','/browse']:
+  page.evaluate('__surfaceOpen',path);page.wait_for_function("document.documentElement.dataset.vrcrpTopLevel==='false'")
+  assert not page.locator('.app-top').is_visible(),path
+  page.wait_for_selector('[data-vrcrp-page-back]')
  browser.close()
 print('PASS: installed-app controls hidden; peer chat header/unread badge; editor tabs replace one history level; routed and overlay profile return; fixed header during pull')

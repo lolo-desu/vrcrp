@@ -7,6 +7,8 @@
   let warmVisit = '', warmCount = 0;
   const revisions=new Map(), pendingRefresh=new Map();
   let unsubscribe=null, refreshTimer=0, pollTimer=0, pauseUntil=0;
+  let warmTimer=0;
+  const listWarming=new Map();
   const pendingEvents=[];
   const idOK = value => typeof value === 'string' && /^[\w-]{1,120}$/.test(value);
   const unwrap = value => value?.data ?? value;
@@ -24,7 +26,7 @@
     return p[0];
   }
   const revision=d=>revisions.get(d.resource)||0;
-  function stopSync(){clearTimeout(refreshTimer);clearTimeout(pollTimer);refreshTimer=pollTimer=0;unsubscribe?.();unsubscribe=null;pendingRefresh.clear();revisions.clear();pendingEvents.length=0;pauseUntil=0;}
+  function stopSync(){clearTimeout(refreshTimer);clearTimeout(pollTimer);clearTimeout(warmTimer);refreshTimer=pollTimer=warmTimer=0;queryClient?.cancelQueries({predicate:q=>listWarming.has(JSON.stringify(q.queryKey))},{silent:true}).catch(()=>{});listWarming.clear();unsubscribe?.();unsubscribe=null;pendingRefresh.clear();revisions.clear();pendingEvents.length=0;pauseUntil=0;}
   const foreground=()=>active&&!document.hidden&&navigator.onLine!==false&&!!user;
   function queueRefresh(groups,at=Date.now(),passive=false){
     for(const group of groups){const before=pendingRefresh.get(group);pendingRefresh.set(group,{at:Math.max(at,before?.at||0),passive:before?before.passive&&passive:passive});}
@@ -55,6 +57,7 @@
       c.invalidateQueries({predicate,refetchType:'none'}).catch(()=>{});
     }
     queueRefresh(affected);
+    scheduleListWarm();
   }
   function armPoll(){
     if(pollTimer||!foreground())return;
@@ -75,6 +78,49 @@
       if(event.type==='observerAdded'&&scoped(event.query)&&livePage(event.query)&&event.query.state.data!==undefined)queueRefresh([family(event.query)],Date.now()-1500,true);
       if(event.type==='observerAdded'||event.type==='observerRemoved')armPoll();
     });armPoll();
+  }
+  // These are the site's actual infinite-list keys. Warm data only: the
+  // component's on-screen read/seen effects must never run during preloading.
+  const warmLists=[
+    {key:['likes','received'],url:'/api/v1/likes/received'},
+    {key:['likes','sent'],url:'/api/v1/likes/sent'},
+    {key:['visitors'],url:'/api/v1/visitors'},
+    {key:['notifications'],url:'/api/v1/notifications',global:true},
+    {key:['matches','active'],url:'/api/v1/matches?state=active'},
+    {key:['matches','unmatched'],url:'/api/v1/matches?state=unmatched'}
+  ];
+  function scheduleListWarm(){
+    if(warmTimer||!foreground())return;
+    warmTimer=setTimeout(()=>{warmTimer=0;preloadLists();},250);
+  }
+  async function preloadLists(){
+    if(!foreground()||Date.now()<pauseUntil)return;
+    const c=client();if(!c){scheduleListWarm();return;}
+    // Prefer an existing scope; the API client's exact language header also
+    // lets the home page warm lists before any scoped tab has been mounted.
+    const scopedQueries=scopes(c),sample=scopedQueries.find(q=>observed(q))||scopedQueries[0];
+    if(!sample&&!headers['Accept-Language']){scheduleListWarm();return;}
+    const prefix=sample?.queryKey.slice(0,3)||['m',headers['X-Content-Mode'],headers['Accept-Language']],owner=epoch;
+    await Promise.allSettled(warmLists.map(async list=>{
+      const key=list.global?list.key:[...prefix,...list.key],token=JSON.stringify(key),q=c.getQueryCache().find({queryKey:key,exact:true});
+      if(listWarming.has(token)||q&&(observed(q)||q.state.fetchStatus==='fetching'||q.state.status==='error'&&Date.now()-(q.state.errorUpdatedAt||0)<30000||q.state.data!==undefined&&!q.state.isInvalidated))return;
+      listWarming.set(token,owner);
+      try{
+        await c.prefetchInfiniteQuery({
+          queryKey:key,initialPageParam:null,staleTime:15000,retry:false,
+          queryFn:async({pageParam,signal})=>{
+            const response=await get(list.url+(pageParam?(list.url.includes('?')?'&':'?')+'cursor='+encodeURIComponent(pageParam):''));
+            if(owner!==epoch||signal.aborted)throw new DOMException('Cancelled preload','AbortError');
+            if(!response?.ok)throw new Error('List preload failed');
+            const value=unwrap(await response.json());
+            if(owner!==epoch||signal.aborted)throw new DOMException('Cancelled preload','AbortError');
+            if(!value||typeof value!=='object'||!Array.isArray(value.items)&&value.locked!==true)throw new Error('Invalid list');
+            return value;
+          },
+          getNextPageParam:page=>page.locked?undefined:page.nextCursor??undefined
+        });
+      }finally{if(listWarming.get(token)===owner)listWarming.delete(token);}
+    }));
   }
   function backoff(response){
     if(response.status===429||response.status>=500)pauseUntil=Math.max(pauseUntil,Date.now()+Math.min(120000,Math.max(30000,(Number(response.headers.get('Retry-After'))||0)*1000)));
@@ -155,7 +201,7 @@
     const c = client(); if (!c || !value || !Number.isSafeInteger(value.unreadMessages)) return false;
     const previous=c.getQueryData(['counters']);c.setQueryData(['counters'], value);
     if(previous){const groups=[];if(value.newLikes!==previous.newLikes)groups.push('likes');if(value.newVisitors!==previous.newVisitors)groups.push('visitors');if(value.unreadNotifications!==previous.unreadNotifications)groups.push('notifications');if(groups.length)changed(groups);}
-    return true;
+    scheduleListWarm();return true;
   }
   function commitMatches(value, state = 'active') {
     const c = client(); if (!c || !Array.isArray(value?.items)) return false;
@@ -211,7 +257,7 @@
     if (method !== 'GET' || url.origin !== location.origin || !user) return null;
     const m = url.pathname.match(/^\/api\/v1\/matches\/([\w-]{1,120})(\/messages)?$/);
     if (!m) {
-      if (!/^\/api\/v1\/(notifications|posts|worlds|users|profiles|likes|visitors)(?:\/|$)/.test(url.pathname)) return null;
+      if (!/^\/api\/v1\/(notifications|posts|worlds|users|profiles|likes|visitors)(?:\/|$)/.test(url.pathname)&&url.pathname!=='/api/v1/matches') return null;
       if (/\/(auth|token|export|download|check|verify)(?:\/|$)/.test(url.pathname)) return null;
       return { page:true, resource:resource(url),url, key:JSON.stringify([user,headers['X-Content-Mode'],headers['Accept-Language'] || '',url.pathname+url.search]) };
     }
@@ -359,9 +405,9 @@
     warmCount = 1; value.items.slice(0,3).forEach(item => prefetch(item.id));
   }
   window.__vrcrpSiteCache = {
-    session(id, nextHeaders) { reset(id); if (nextHeaders) configure(nextHeaders); },
-    active(value) { active = value === true;if(!active){clearTimeout(pollTimer);clearTimeout(refreshTimer);pollTimer=refreshTimer=0;}else{queueRefresh(pageFamilies,Date.now()-1500,true);armPoll();} }, commitCounters, commitMatches, refreshList, warmList, prefetch, serverEvent,
-    pageChanged(){if(foreground()){armPoll();}},
+    session(id, nextHeaders) { reset(id); if (nextHeaders) configure(nextHeaders);scheduleListWarm(); },
+    active(value) { active = value === true;if(!active){clearTimeout(pollTimer);clearTimeout(refreshTimer);clearTimeout(warmTimer);pollTimer=refreshTimer=warmTimer=0;}else{queueRefresh(pageFamilies,Date.now()-1500,true);armPoll();scheduleListWarm();} }, commitCounters, commitMatches, refreshList, warmList, prefetch, serverEvent, preloadLists,
+    pageChanged(){if(foreground()){armPoll();scheduleListWarm();}},
     refreshPage() {
       const c=client();if(!c)return false;
       const groups=new Set(c.getQueryCache().getAll().filter(q=>scoped(q)&&observed(q)).map(family));changed(groups);
@@ -379,6 +425,6 @@
     const a = event.target?.closest?.('a[href]'); if (!a) return;
     try { const url = new URL(a.href,location.href), m = url.pathname.match(/^\/matches\/([\w-]{1,120})$/); if (url.origin === location.origin && m) prefetch(m[1]); } catch {}
   },{capture:true,passive:true});
-  document.addEventListener('visibilitychange',()=>{if(document.hidden){clearTimeout(pollTimer);clearTimeout(refreshTimer);pollTimer=refreshTimer=0;}else if(active){queueRefresh(pageFamilies,Date.now()-1500,true);armPoll();}});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden){clearTimeout(pollTimer);clearTimeout(refreshTimer);clearTimeout(warmTimer);pollTimer=refreshTimer=warmTimer=0;}else if(active){queueRefresh(pageFamilies,Date.now()-1500,true);armPoll();scheduleListWarm();}});
   window.addEventListener('online',()=>{pauseUntil=0;queueRefresh(pageFamilies,Date.now()-1500,true);armPoll();});
 })();

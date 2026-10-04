@@ -238,7 +238,7 @@ cp "$DATA_PATH/Documents/"surfaces-*.png "$ROOT/build/"
 python3 - "$ROOT/build" <<'PYSURFACES'
 import json,sys
 from pathlib import Path
-names=['edit-entry','edit-keyboard','edit-tabs','edit-return','chat','profile','profile-return','pull','refreshed','overlay-preview','overlay-cancelled','overlay-return','external-a','external-b','external-back','external-forward','dark-pull','light-pull','completed']
+names=['edit-entry','edit-keyboard','edit-tabs','edit-return','chat','profile','profile-return','pull','refreshed','overlay-preview','overlay-cancelled','overlay-return','notification-origin','notification-chat-entry','notification-list-return','external-a','external-b','external-back','external-forward','dark-pull','light-pull','completed']
 stages={s:json.loads((Path(sys.argv[1])/f'surfaces-{s}.json').read_text()) for s in names}
 for stage,data in stages.items():
  print(stage,data)
@@ -251,7 +251,10 @@ assert stages['chat']['chatHeaderLeft']==0 and abs(stages['chat']['chatHeaderRig
 assert abs(float(stages['chat']['composerPadding'].removesuffix('px'))-6-stages['chat']['safeBottom'])<1,stages['chat']
 assert all(d['noWebsitePull'] and not d['systemRefreshControl'] for d in stages.values()),stages
 assert stages['chat']['globalHeaderHidden'] and stages['chat']['chatHeaderTop']==0 and stages['chat']['unread']=='7',stages['chat']
-assert stages['profile']['edgeBackAllowed'] and stages['profile']['backButton'] and stages['profile-return']['path']=='/matches/thread',stages
+assert stages['profile']['globalHeaderHidden'] and stages['profile']['edgeBackAllowed'] and stages['profile']['backButton'] and stages['profile-return']['path']=='/matches/thread',stages
+assert entry['globalHeaderHidden'] and tabs['globalHeaderHidden'],stages
+assert stages['notification-origin']['globalHeaderHidden'] and stages['notification-chat-entry']['globalHeaderHidden'],stages
+assert stages['notification-list-return']['path']=='/matches' and not stages['notification-list-return']['globalHeaderHidden'],stages
 pull=stages['pull'];assert pull['hintVisible'] and pull['hintText']=='松开刷新' and pull['hintTop']>=pull['headerHeight'] and not pull['bounce'] and pull['surfaceColor']==[1,1,1,1],pull
 assert stages['refreshed']['refreshes']>=1 and not stages['refreshed']['hintVisible'],stages['refreshed']
 assert stages['overlay-preview']['interactive'] and stages['overlay-preview']['overlay'] and stages['overlay-preview']['translation']>0,stages['overlay-preview']
@@ -259,8 +262,8 @@ assert stages['overlay-cancelled']['overlay'] and not stages['overlay-cancelled'
 assert not stages['overlay-return']['overlay'] and stages['overlay-return']['path']=='/discover',stages['overlay-return']
 for phase in ['external-a','external-b','external-back','external-forward']:
  external=stages[phase]['external'];assert external['host']=='localhost' and external['close'] and external['statusVisible'] and external['webTop']==external['barBottom'],external
-assert not stages['external-a']['external']['back'] and not stages['external-a']['external']['forward'],stages['external-a']
-assert stages['external-b']['external']['back'] and stages['external-b']['external']['url'].endswith('/external/b'),stages['external-b']
+assert not stages['external-a']['external']['back'] and not stages['external-a']['external']['forward'] and stages['external-a']['external']['rootSwipe'],stages['external-a']
+assert stages['external-b']['external']['back'] and stages['external-b']['external']['url'].endswith('/external/b') and stages['external-b']['external']['historySwipe'] and not stages['external-b']['external']['rootSwipe'],stages['external-b']
 assert stages['external-back']['external']['forward'] and stages['external-back']['external']['url'].endswith('/external/a'),stages['external-back']
 assert stages['external-forward']['external']['url'].endswith('/external/b'),stages['external-forward']
 for phase,expected in [('dark-pull',[24/255,28/255,35/255,1]),('light-pull',[1,1,1,1])]:
