@@ -44,6 +44,21 @@ xcrun simctl bootstatus "$SIM_ID" -b
 xcrun simctl install "$SIM_ID" "$APP"
 xcrun simctl launch "$SIM_ID" local.erp.stable --verify-keyboard
 DATA_PATH="$(xcrun simctl get_app_container "$SIM_ID" local.erp.stable data)"
+wait_for_recording() {
+  local log="$1" record_deadline=$((SECONDS + 30))
+  while :; do
+    if test -f "$log" && [[ "$(<"$log")" == *"Recording started"* ]]; then
+      # The encoder may need another frame interval after announcing startup.
+      sleep 2
+      return 0
+    fi
+    if ! kill -0 "$VIDEO_PID" 2>/dev/null || (( SECONDS >= record_deadline )); then
+      echo 'Simulator video recording did not start' >&2
+      return 1
+    fi
+    sleep 1
+  done
+}
 wait_for_report() {
   local report="$1"
   for attempt in {1..90}; do
@@ -199,7 +214,7 @@ PYMOTION
 xcrun simctl io "$SIM_ID" screenshot "$ROOT/build/app-motion.png"
 xcrun simctl io "$SIM_ID" recordVideo --codec=h264 "$ROOT/build/handoff.mov" > "$ROOT/build/handoff-record.log" 2>&1 &
 VIDEO_PID=$!
-sleep 1
+wait_for_recording "$ROOT/build/handoff-record.log"
 xcrun simctl launch --terminate-running-process "$SIM_ID" local.erp.stable --verify-handoff
 wait_for_report handoff-completed.json
 kill -INT "$VIDEO_PID"
@@ -209,7 +224,7 @@ cp "$DATA_PATH/Documents/"handoff-*.json "$ROOT/build/"
 swift "$ROOT/scripts/check-handoff-video.swift" "$ROOT/build/handoff.mov" "$ROOT/build/handoff-video.json"
 xcrun simctl io "$SIM_ID" recordVideo --codec=h264 "$ROOT/build/continuity.mov" > "$ROOT/build/continuity-record.log" 2>&1 &
 VIDEO_PID=$!
-sleep 1
+wait_for_recording "$ROOT/build/continuity-record.log"
 xcrun simctl launch --terminate-running-process "$SIM_ID" local.erp.stable --verify-continuity
 wait_for_report continuity-completed.json
 kill -INT "$VIDEO_PID"

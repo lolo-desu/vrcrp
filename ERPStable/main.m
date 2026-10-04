@@ -824,7 +824,11 @@ static UIView *ERPFocusedView(UIView *view) {
     condition=[condition stringByReplacingOccurrencesOfString:@"NATIVE_NAV_TOP" withString:[NSString stringWithFormat:@"%.3f",self.bottomNav.frame.origin.y-self.web.frame.origin.y]];
     void (^check)(id,NSError *)=^(id result,NSError *error){
         if(!error&&[result isEqual:@YES]&&(!native||native())){
-            dispatch_block_t next=^{dispatch_after(dispatch_time(DISPATCH_TIME_NOW,([NSProcessInfo.processInfo.arguments containsObject:@"--verify-navigation"]?0:300)*NSEC_PER_MSEC),dispatch_get_main_queue(),^{[self runVerifySteps:steps index:index+1 deadline:0];});};
+            // Keep recorded stable pages on screen long enough for a loaded
+            // simulator's encoder to sample them. Rapid-return checks retain
+            // their zero-delay sequence and exercise the real transition speed.
+            NSUInteger dwell=[NSProcessInfo.processInfo.arguments containsObject:@"--verify-navigation"]?0:[NSProcessInfo.processInfo.arguments containsObject:@"--verify-handoff"]?1200:300;
+            dispatch_block_t next=^{dispatch_after(dispatch_time(DISPATCH_TIME_NOW,dwell*NSEC_PER_MSEC),dispatch_get_main_queue(),^{[self runVerifySteps:steps index:index+1 deadline:0];});};
             NSString *phase=step[@"phase"];
             if(!phase.length){next();return;}
             if([NSProcessInfo.processInfo.arguments containsObject:@"--verify-continuity"])[self captureContinuity:phase completion:next];
@@ -903,7 +907,7 @@ static UIView *ERPFocusedView(UIView *view) {
     ];[self runVerifySteps:steps index:0 deadline:0];
 }
 - (void)captureHandoff:(NSString *)phase completion:(dispatch_block_t)done {
-    NSDictionary *data=@{@"phase":phase,@"handoff":@(self.pageNavigation.handoff),@"interactive":@(self.pageNavigation.interactive),@"transitioning":@(self.pageNavigation.transitioning),@"webEnabled":@(self.web.userInteractionEnabled),@"alpha":@(self.web.alpha),@"loads":@(self.documentLoads)};
+    NSDictionary *data=@{@"phase":phase,@"capturedAt":@(NSDate.date.timeIntervalSince1970),@"handoff":@(self.pageNavigation.handoff),@"interactive":@(self.pageNavigation.interactive),@"transitioning":@(self.pageNavigation.transitioning),@"webEnabled":@(self.web.userInteractionEnabled),@"alpha":@(self.web.alpha),@"loads":@(self.documentLoads)};
     NSURL *directory=[NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask].firstObject;
     [[NSJSONSerialization dataWithJSONObject:data options:NSJSONWritingPrettyPrinted error:nil] writeToURL:[directory URLByAppendingPathComponent:[NSString stringWithFormat:@"handoff-%@.json",phase]] atomically:YES];if(done)done();
 }
