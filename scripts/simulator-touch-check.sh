@@ -16,6 +16,8 @@ python3 scripts/fixture-server.py > build/touch-fixture-server.log 2>&1 &
 SERVER_PID=$!
 SIM_ID="$(xcrun simctl create vrcrp-touch-check com.apple.CoreSimulator.SimDeviceType.iPhone-17-Pro)"
 finish_touch_check() {
+  DATA_PATH="$(xcrun simctl get_app_container "$SIM_ID" local.erp.stable data 2>/dev/null || true)"
+  for name in background-listening preference-state; do if test -f "$DATA_PATH/Documents/$name.json"; then cp "$DATA_PATH/Documents/$name.json" "build/$name.json"; fi; done
   xcrun simctl spawn "$SIM_ID" log show --last 10m --style compact --predicate 'process == "ERPStable" AND eventMessage CONTAINS "Gesture trace"' > build/touch-native.log 2>&1 || true
   if test -d build/touch-results.xcresult; then xcrun xcresulttool export attachments --path build/touch-results.xcresult --output-path build/touch-attachments --only-failures >/dev/null 2>&1 || true; fi
   kill "$SERVER_PID" >/dev/null 2>&1 || true
@@ -29,4 +31,4 @@ xcodebuild test -project ERPStable.xcodeproj -scheme GestureChecks \
   -destination "platform=iOS Simulator,id=$SIM_ID" -parallel-testing-enabled NO \
   -derivedDataPath build/UITestDerived -resultBundlePath build/touch-results.xcresult \
   CODE_SIGNING_ALLOWED=NO 2>&1 | tee build/touch-tests.log
-echo 'PASS: actual XCTest photo tap/right-swipe, delayed/warm profile entry, slow vertical scrolling, horizontal album, dropped-snapshot recovery and like-sheet right/down/cancel/body-scroll gestures'
+echo 'PASS: actual XCTest profile/like-sheet/external gestures, background notifications beyond short grace and logout, palette persistence and native color synchronization'

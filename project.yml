@@ -18,6 +18,7 @@ targets:
         buildPhase: resources
     dependencies:
       - sdk: Intents.framework
+      - sdk: AVFoundation.framework
     settings:
       base:
         CODE_SIGN_ENTITLEMENTS: ERPStable/Communication.entitlements

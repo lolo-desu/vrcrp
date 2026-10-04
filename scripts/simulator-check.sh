@@ -8,8 +8,8 @@ mkdir -p "$ROOT/build/Simulator"
 cp -R "$ROOT/build/Payload/ERPStable.app" "$APP"
 xcrun --sdk iphonesimulator clang -arch "$ARCH" -isysroot "$SDK" \
   -mios-simulator-version-min=15.0 -fobjc-arc -O2 -DERP_TESTING=1 \
-  -framework UIKit -framework Foundation -framework WebKit -framework CoreGraphics -framework UserNotifications -framework SafariServices -framework ImageIO -framework Intents \
-  "$ROOT/ERPStable/main.m" "$ROOT/ERPStable/ThemeNavigation.m" "$ROOT/ERPStable/ChatNotifications.m" "$ROOT/ERPStable/PageNavigation.m" "$ROOT/ERPStable/ExternalBrowser.m" -o "$APP/ERPStable"
+  -framework UIKit -framework Foundation -framework WebKit -framework CoreGraphics -framework UserNotifications -framework SafariServices -framework ImageIO -framework Intents -framework AVFoundation \
+  "$ROOT/ERPStable/main.m" "$ROOT/ERPStable/ThemeNavigation.m" "$ROOT/ERPStable/ChatNotifications.m" "$ROOT/ERPStable/BackgroundAudioLease.m" "$ROOT/ERPStable/PageNavigation.m" "$ROOT/ERPStable/ExternalBrowser.m" -o "$APP/ERPStable"
 cp "$ROOT/scripts/layout-fixture.html" "$APP/layout-fixture.html"
 cp "$ROOT/scripts/navigation-fixture.html" "$APP/navigation-fixture.html"
 cp "$ROOT/scripts/surface-fixture.html" "$APP/surface-fixture.html"

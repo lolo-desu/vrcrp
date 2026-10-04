@@ -37,7 +37,7 @@
   function context() {
     const r=document.documentElement,s=getComputedStyle(r);
     let locale='';try{locale=localStorage.getItem('erp_locale')||'';}catch{}
-    return [innerWidth,innerHeight,r.lang,locale,r.dataset.preset,r.dataset.scheme,
+    return [innerWidth,innerHeight,r.lang,locale,r.dataset.preset,r.dataset.scheme,r.dataset.vrcrpPalette,
       ...['--surface','--bg','--fg','--primary','--radius-card'].map(k=>s.getPropertyValue(k))].join('|');
   }
   function family(path) {

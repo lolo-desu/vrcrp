@@ -32,7 +32,7 @@
 static BOOL ERPUsesSimulatorFixtures(void) {
 #if ERP_TESTING
     NSArray *args=NSProcessInfo.processInfo.arguments;
-    return [args containsObject:@"--verify-keyboard"] || [args containsObject:@"--verify-tabs"] || [args containsObject:@"--verify-ux"] || [args containsObject:@"--verify-motion"] || [args containsObject:@"--verify-surfaces"] || [args containsObject:@"--verify-navigation"] || [args containsObject:@"--verify-handoff"] || [args containsObject:@"--verify-gestures"] || [args containsObject:@"--verify-continuity"] || [args containsObject:@"--verify-feedback"];
+    return [args containsObject:@"--verify-keyboard"] || [args containsObject:@"--verify-tabs"] || [args containsObject:@"--verify-ux"] || [args containsObject:@"--verify-motion"] || [args containsObject:@"--verify-surfaces"] || [args containsObject:@"--verify-navigation"] || [args containsObject:@"--verify-handoff"] || [args containsObject:@"--verify-gestures"] || [args containsObject:@"--verify-continuity"] || [args containsObject:@"--verify-feedback"] || [args containsObject:@"--verify-preferences"] || [args containsObject:@"--verify-background"];
 #else
     return NO;
 #endif
@@ -148,6 +148,8 @@ static UIView *ERPFocusedView(UIView *view) {
 @property(nonatomic) BOOL verifyColdEntryReady;
 @property(nonatomic) NSUInteger documentLoads;
 @property(nonatomic,strong) NSDictionary *surfaceWebState;
+@property(nonatomic,strong) UILabel *preferenceReport;
+@property(nonatomic,strong) NSMutableArray *backgroundJournal;
 #endif
 @end
 
@@ -161,6 +163,9 @@ static UIView *ERPFocusedView(UIView *view) {
     self.chatNotifications=[[ChatNotifications alloc] initWithCookieStore:configuration.websiteDataStore.httpCookieStore];
     configuration.ignoresViewportScaleLimits = NO;
     configuration.allowsInlineMediaPlayback = YES;
+    NSString *themeScript=[NSString stringWithContentsOfURL:[NSBundle.mainBundle URLForResource:@"app-theme" withExtension:@"js"] encoding:NSUTF8StringEncoding error:nil];
+    NSAssert(themeScript!=nil,@"Missing app-theme.js");
+    [configuration.userContentController addUserScript:[[WKUserScript alloc] initWithSource:ERPInjectedScript(themeScript) injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]];
     NSString *surfaceScript=[NSString stringWithContentsOfURL:[NSBundle.mainBundle URLForResource:@"page-surfaces" withExtension:@"js"] encoding:NSUTF8StringEncoding error:nil];
     NSAssert(surfaceScript!=nil,@"Missing page-surfaces.js");
     [configuration.userContentController addUserScript:[[WKUserScript alloc] initWithSource:ERPInjectedScript(surfaceScript) injectionTime:WKUserScriptInjectionTimeAtDocumentStart forMainFrameOnly:YES]];
@@ -229,6 +234,14 @@ static UIView *ERPFocusedView(UIView *view) {
         [self.statusBarSurface.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
         [self.statusBarSurface.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor]]];
     __weak BrowserController *weakSelf=self;
+    self.chatNotifications.onBackgroundStateChanged=^(NSDictionary *state){
+        NSData *data=[NSJSONSerialization dataWithJSONObject:state options:0 error:nil];
+        NSString *json=[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+        if(UIApplication.sharedApplication.applicationState==UIApplicationStateActive)[weakSelf.web evaluateJavaScript:[NSString stringWithFormat:@"window.__vrcrpBackgroundState?.(%@)",json] completionHandler:nil];
+#if ERP_TESTING
+        if([NSProcessInfo.processInfo.arguments containsObject:@"--verify-background"])[weakSelf writeBackgroundVerification];
+#endif
+    };
     self.pageNavigation=[[PageNavigation alloc] initWithWebView:self.web navigation:self.bottomNav header:self.statusBarSurface];
     self.pageNavigation.captureAllowed=^BOOL(void){return weakSelf&&!weakSelf.keyboardVisible&&!weakSelf.presentedViewController&&!weakSelf.websiteOverlay&&!weakSelf.profileOverlay&&!weakSelf.rowPressed&&!weakSelf.textSelected;};
     self.pageNavigation.onTransitionChange=^(BOOL running){[weakSelf restoreNavigation];if(!running)[weakSelf captureSnapshot];};
@@ -273,6 +286,9 @@ static UIView *ERPFocusedView(UIView *view) {
         [self.web loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"http://127.0.0.1:18765/matches?fixture=gestures"]]];
     } else if ([arguments containsObject:@"--verify-surfaces"]) {
         [self.web loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"http://127.0.0.1:18765/me?fixture=surfaces"]]];
+    } else if ([arguments containsObject:@"--verify-preferences"] || [arguments containsObject:@"--verify-background"]) {
+        NSString *path=[arguments containsObject:@"--verify-background"]?@"/settings/notifications":@"/settings";
+        [self.web loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:[@"http://127.0.0.1:18765" stringByAppendingFormat:@"%@?fixture=preferences",path]]]];
     } else if ([arguments containsObject:@"--preview-login"]) {
         [self.web loadRequest:[NSURLRequest requestWithURL:[NSURL URLWithString:@"https://erp.sex/login"]]];
     } else
@@ -498,6 +514,7 @@ static UIView *ERPFocusedView(UIView *view) {
     [self.web evaluateJavaScript:@"window.__vrcrpRefreshSurface?.();window.__vrcrpRefreshChrome?.()" completionHandler:nil];
 }
 - (void)appInactive:(NSNotification *)notification {
+    [self.chatNotifications prepareBackgroundListening];
     [self.web evaluateJavaScript:@"window.__vrcrpAppActive?.(false)" completionHandler:nil];
 }
 - (void)appBackground:(NSNotification *)notification { [self.chatNotifications beginBackgroundSync]; }
@@ -513,6 +530,8 @@ static UIView *ERPFocusedView(UIView *view) {
         [NSProcessInfo.processInfo.arguments containsObject:@"--verify-gestures"] ||
         [NSProcessInfo.processInfo.arguments containsObject:@"--verify-continuity"] ||
         [NSProcessInfo.processInfo.arguments containsObject:@"--verify-feedback"] ||
+        [NSProcessInfo.processInfo.arguments containsObject:@"--verify-preferences"] ||
+        [NSProcessInfo.processInfo.arguments containsObject:@"--verify-background"] ||
         [NSProcessInfo.processInfo.arguments containsObject:@"--preview-login"]) return;
 #endif
     if(self.askedForNotifications)return; self.askedForNotifications=YES;
@@ -538,7 +557,30 @@ static UIView *ERPFocusedView(UIView *view) {
     NSDictionary *body = message.body;
     if ([message.name isEqualToString:@"erpNativeApp"]) {
         NSString *kind=body[@"kind"];
+        if([kind isEqual:@"backgroundStatus"]||[kind isEqual:@"backgroundListening"]){
+            if([kind isEqual:@"backgroundListening"]&&[body[@"enabled"] isKindOfClass:NSNumber.class])self.chatNotifications.backgroundListeningEnabled=[body[@"enabled"] boolValue];
+            if(self.chatNotifications.onBackgroundStateChanged)self.chatNotifications.onBackgroundStateChanged([self.chatNotifications backgroundState]);return;
+        }
+        if([kind isEqual:@"paletteChanged"]){
+            if(![@[@"default",@"mono",@"blue",@"green",@"purple",@"orange",@"pink"] containsObject:body[@"palette"]])return;
+            [NSUserDefaults.standardUserDefaults setObject:body[@"palette"] forKey:@"VRPalette"];
+            [self.pageNavigation clear];self.snapshotGeneration++;
+            self.overrideUserInterfaceStyle=[body[@"dark"] isEqual:@YES]?UIUserInterfaceStyleDark:UIUserInterfaceStyleLight;
+            if([body[@"background"] isKindOfClass:NSArray.class]&&[body[@"background"] count]==4){
+                UIColor *background=VRColor(body[@"background"],self.view.backgroundColor);
+                self.view.backgroundColor=background;self.loadingCover.backgroundColor=background;
+                [NSUserDefaults.standardUserDefaults setObject:body[@"background"] forKey:@"VRThemeBackground"];
+            }
+            if([body[@"surface"] isKindOfClass:NSArray.class]&&[body[@"surface"] count]==4){UIColor *surface=VRColor(body[@"surface"],self.statusBarSurface.backgroundColor);[self applyStatusColor:surface];self.web.backgroundColor=surface;self.web.scrollView.backgroundColor=surface;}
+            if([body[@"primary"] isKindOfClass:NSArray.class]&&[body[@"primary"] count]==4){self.loadingCover.tintColor=VRColor(body[@"primary"],self.loadingCover.tintColor);[NSUserDefaults.standardUserDefaults setObject:body[@"primary"] forKey:@"VRThemeAccent"];}
+            return;
+        }
 #if ERP_TESTING
+        if([kind isEqual:@"verifyPreferenceReport"]&&([NSProcessInfo.processInfo.arguments containsObject:@"--verify-preferences"]||[NSProcessInfo.processInfo.arguments containsObject:@"--verify-background"])){
+            NSMutableDictionary *report=[body mutableCopy];report[@"nativeSelection"]=[self.bottomNav verifySelection];report[@"backgroundState"]=[self.chatNotifications verifyBackgroundState];report[@"journal"]=[self.backgroundJournal copy]?:@[];
+            CGFloat r=0,g=0,b=0,a=1;[self.statusBarSurface.backgroundColor getRed:&r green:&g blue:&b alpha:&a];report[@"nativeStatus"]=@[@(r*255),@(g*255),@(b*255)];
+            [self setPreferenceVerificationReport:report];return;
+        }
         if([kind isEqual:@"verifyGestureReport"]&&[NSProcessInfo.processInfo.arguments containsObject:@"--verify-gestures"]){
             NSLog(@"Gesture trace JS %@ native key=%@ overlay=%d profile=%d handoff=%d transitioning=%d",body,self.pageNavigation.currentKey,self.websiteOverlay,self.profileOverlay,self.pageNavigation.handoff,self.pageNavigation.transitioning);return;
         }
@@ -645,6 +687,8 @@ static UIView *ERPFocusedView(UIView *view) {
         return;
     }
     if ([body[@"kind"] isEqual:@"appearance"]) {
+        NSString *palette=[NSUserDefaults.standardUserDefaults stringForKey:@"VRPalette"];
+        if(palette.length&&![palette isEqual:@"default"])return;
         NSString *hex = body[@"color"];
         if (![hex isKindOfClass:NSString.class] || hex.length != 7 || ![hex hasPrefix:@"#"]) return;
         NSScanner *scanner = [NSScanner scannerWithString:[hex substringFromIndex:1]];
@@ -692,6 +736,13 @@ static UIView *ERPFocusedView(UIView *view) {
     
 #if ERP_TESTING
     self.documentLoads++;
+    if([NSProcessInfo.processInfo.arguments containsObject:@"--verify-background"]){
+        self.chatNotifications.backgroundListeningEnabled=NO;
+        [self.chatNotifications handleEvent:@{@"kind":@"session",@"userId":@"fixture-me",@"mode":@"sfw"}];
+        NSHTTPCookie *cookie=[NSHTTPCookie cookieWithProperties:@{NSHTTPCookieName:@"vrcrp_background_fixture",NSHTTPCookieValue:@"1",NSHTTPCookieDomain:@"erp.sex",NSHTTPCookiePath:@"/",NSHTTPCookieExpires:[NSDate dateWithTimeIntervalSinceNow:3600]}];
+        [self.web.configuration.websiteDataStore.httpCookieStore setCookie:cookie completionHandler:^{[self.chatNotifications prepareBackgroundListening];}];
+        [self.web evaluateJavaScript:@"fetch('/__test/background/reset')" completionHandler:nil];
+    }
     if([NSProcessInfo.processInfo.arguments containsObject:@"--verify-keyboard"]) {
         NSDictionary *report=[self.chatNotifications verifyNotificationContent];
         NSURL *directory=[NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask].firstObject;
@@ -709,6 +760,18 @@ static UIView *ERPFocusedView(UIView *view) {
 #endif
 }
 #if ERP_TESTING
+- (void)setPreferenceVerificationReport:(NSDictionary *)report {
+    if(!self.preferenceReport){self.preferenceReport=[UILabel new];self.preferenceReport.frame=CGRectMake(8,self.view.bounds.size.height-140,self.view.bounds.size.width-16,18);self.preferenceReport.text=@"模拟器检查报告";self.preferenceReport.font=[UIFont systemFontOfSize:9];self.preferenceReport.accessibilityIdentifier=@"vrcrp-preference-report";self.preferenceReport.isAccessibilityElement=YES;self.preferenceReport.userInteractionEnabled=NO;[self.view addSubview:self.preferenceReport];}
+    NSData *data=[NSJSONSerialization dataWithJSONObject:report options:0 error:nil];self.preferenceReport.accessibilityLabel=[[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
+    NSURL *directory=[NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask].firstObject;
+    [data writeToURL:[directory URLByAppendingPathComponent:@"preference-state.json"] atomically:YES];
+}
+- (void)writeBackgroundVerification {
+    if(!self.backgroundJournal)self.backgroundJournal=[NSMutableArray new];
+    NSMutableDictionary *state=[[self.chatNotifications verifyBackgroundState] mutableCopy];state[@"background"]=@(UIApplication.sharedApplication.applicationState==UIApplicationStateBackground);state[@"time"]=@(NSDate.date.timeIntervalSince1970);[self.backgroundJournal addObject:state];if(self.backgroundJournal.count>30)[self.backgroundJournal removeObjectAtIndex:0];
+    NSURL *directory=[NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask].firstObject;
+    [[NSJSONSerialization dataWithJSONObject:self.backgroundJournal options:0 error:nil] writeToURL:[directory URLByAppendingPathComponent:@"background-listening.json"] atomically:YES];
+}
 // A cold simulator can finish its document before SVG rasterization supplies
 // the native navigation model. Begin the tap test only once it is actionable;
 // the selected state is still checked synchronously, before any JS reply.

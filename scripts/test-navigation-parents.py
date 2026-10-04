@@ -24,9 +24,9 @@ with sync_playwright() as p:
             else:
                 r.fulfill(body='<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>:root{--bg:245 245 245;--surface:255 255 255;--fg:30 30 30;--primary:230 80 90}body{margin:0}.app-top{height:56px;background:white}.chat-header{height:56px}main{min-height:700px}</style></head><body><div id="root"></div><script type="module" src="/assets/continuity-test.js"></script></body></html>', content_type='text/html')
         page.route('https://erp.sex/**', route)
-        page.add_init_script('window.nativeMessages=[];window.webkit={messageHandlers:{erpNativeApp:{postMessage:m=>nativeMessages.push(m)}}}')
-        for name in ['page-surfaces', 'keyboard', 'page-templates', 'app-experience']:
-            page.add_init_script((root / 'ERPStable' / f'{name}.js').read_text())
+        init='window.nativeMessages=[];window.webkit={messageHandlers:{erpNativeApp:{postMessage:m=>nativeMessages.push(m)}}};'
+        init+='\n'.join((root / 'ERPStable' / f'{name}.js').read_text() for name in ['app-theme','page-surfaces','keyboard','page-templates','app-experience'])
+        page.add_init_script(init)
         page.goto('https://erp.sex/notifications')
         page.wait_for_function('__vrcrpPaintState().ready')
         for origin in ['/notifications', '/discover', '/settings/privacy']:

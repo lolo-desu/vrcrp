@@ -12,14 +12,15 @@ rm -rf "$APP"
 mkdir -p "$APP"
 xcrun --sdk iphoneos clang -arch arm64 -isysroot "$SDK" \
   -miphoneos-version-min=15.0 -fobjc-arc -O2 \
-  -framework UIKit -framework Foundation -framework WebKit -framework CoreGraphics -framework UserNotifications -framework SafariServices -framework ImageIO -framework Intents \
-  -Wl,-no_adhoc_codesign "$ROOT/ERPStable/main.m" "$ROOT/ERPStable/ThemeNavigation.m" "$ROOT/ERPStable/ChatNotifications.m" "$ROOT/ERPStable/PageNavigation.m" "$ROOT/ERPStable/ExternalBrowser.m" -o "$APP/ERPStable"
+  -framework UIKit -framework Foundation -framework WebKit -framework CoreGraphics -framework UserNotifications -framework SafariServices -framework ImageIO -framework Intents -framework AVFoundation \
+  -Wl,-no_adhoc_codesign "$ROOT/ERPStable/main.m" "$ROOT/ERPStable/ThemeNavigation.m" "$ROOT/ERPStable/ChatNotifications.m" "$ROOT/ERPStable/BackgroundAudioLease.m" "$ROOT/ERPStable/PageNavigation.m" "$ROOT/ERPStable/ExternalBrowser.m" -o "$APP/ERPStable"
 cp "$ROOT/ERPStable/Info.plist" "$APP/Info.plist"
 cp "$ROOT/ERPStable/Communication.entitlements" "$APP/Communication.entitlements"
 cp "$ROOT/ERPStable/interaction.js" "$APP/interaction.js"
 cp "$ROOT/ERPStable/notifications.js" "$APP/notifications.js"
 cp "$ROOT/ERPStable/keyboard.js" "$APP/keyboard.js"
 cp "$ROOT/ERPStable/app-experience.js" "$APP/app-experience.js"
+cp "$ROOT/ERPStable/app-theme.js" "$APP/app-theme.js"
 cp "$ROOT/ERPStable/site-cache.js" "$APP/site-cache.js"
 cp "$ROOT/ERPStable/content-experience.js" "$APP/content-experience.js"
 cp "$ROOT/ERPStable/page-surfaces.js" "$APP/page-surfaces.js"

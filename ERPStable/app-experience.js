@@ -603,6 +603,7 @@
         card.append(caption,button,description); main.appendChild(card);
       }
     }
+    window.__vrcrpPreferencesUpdate?.();
     const nav = document.querySelector('.app-bottom');
     const anchors = nav ? [...nav.querySelectorAll('a[href]')] : [];
     const keyboard = root.dataset.vrcrpKeyboard === 'true';
@@ -648,6 +649,7 @@
   }
   function schedule() { if (!queued) { queued = true; requestAnimationFrame(update); } }
   window.__vrcrpRefreshChrome=()=>{updateTopSurface();schedule();};
+  window.__vrcrpThemeChanged=()=>{window.__vrcrpPageTemplates?.clear();announceRoute();updateTopSurface();schedule();};
   window.__vrcrpNativeNavReady = () => {
     const nav = document.querySelector('.app-bottom');
     if (nav) {

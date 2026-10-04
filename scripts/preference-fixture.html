@@ -1,0 +1,15 @@
+<!doctype html><html data-preset="pop" data-scheme="light"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{--bg:255 235 117;--surface:255 255 255;--surface-2:247 245 239;--fg:28 28 28;--muted:95 95 95;--border:28 28 28;--line:28 28 28;--primary:255 90 78;--primary-fg:255 255 255;--radius-card:16px;--radius-ctl:10px}
+*{box-sizing:border-box}body{margin:0;font:14px system-ui;background:rgb(var(--bg));color:rgb(var(--fg))}.app-top{height:56px;background:rgb(var(--surface));padding:16px}.card{border:2px solid rgb(var(--border));border-radius:16px;background:rgb(var(--surface))}main{padding:16px 12px 110px}h1{font-size:24px;margin:0 0 12px}p{margin:0}button{font:inherit;color:inherit}.font-semibold{font-weight:600}.text-muted{color:rgb(var(--muted))}.mt-2{margin-top:8px}.mt-3{margin-top:12px}.mt-4{margin-top:16px}.p-4{padding:16px}.text-sm{font-size:13px}.bg-surface2{background:rgb(var(--surface-2))}.border{border:1px solid}.border-border{border-color:rgb(var(--border))}.rounded-ctl{border-radius:var(--radius-ctl)}.px-4{padding-inline:16px}.py-3{padding-block:12px}
+.app-bottom{position:fixed;bottom:0;inset-inline:0;padding:5px 0 env(safe-area-inset-bottom);display:flex;background:rgb(var(--surface));border-top:1px solid rgb(var(--border))}.app-bottom a{color:rgb(var(--muted));flex:1;text-align:center;padding:7px 0;font-size:11px;text-decoration:none;display:flex;align-items:center;flex-direction:column;gap:2px}.app-bottom svg{height:22px;width:22px}.app-bottom a[aria-current]{color:rgb(var(--primary))}.test-controls{display:flex;gap:8px;margin-top:12px}.test-controls button{padding:10px;background:rgb(var(--surface));border:1px solid rgb(var(--border));border-radius:10px}
+</style></head><body><header class="app-top">测试</header><main id="main"><h1>设置</h1><p>此页面仅用于模拟器验证。</p><div class="test-controls"><button onclick="toggleDark()">切换深色测试</button><button onclick="logout()">注销测试</button></div></main><nav class="app-bottom"></nav>
+<script>
+history.replaceState({idx:0,key:'preference-root'},'',location.href);
+const paths=['/discover','/likes','/matches','/posts','/me'],titles=['探索','喜欢','配对','广场','我的'];
+document.querySelector('.app-bottom').innerHTML=paths.map((path,i)=>`<a href="${path}" ${i===4?'aria-current="page"':''}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/></svg><span>${titles[i]}</span></a>`).join('');
+function toggleDark(){document.documentElement.dataset.scheme=document.documentElement.dataset.scheme==='dark'?'light':'dark';}
+function logout(){webkit.messageHandlers.erpNativeNotifications.postMessage({kind:'session',userId:''});}
+function report(){const r=document.documentElement,s=getComputedStyle(r),rgb=k=>(s.getPropertyValue(k).trim().match(/[\d.]+/g)||[]).slice(0,3).map(Number);webkit.messageHandlers.erpNativeApp.postMessage({kind:'verifyPreferenceReport',palette:window.__vrcrpTheme?.current(),dark:r.dataset.scheme==='dark',background:rgb('--bg'),surface:rgb('--surface'),primary:rgb('--primary')});}
+setInterval(report,500);setTimeout(report,1000);
+</script></body></html>

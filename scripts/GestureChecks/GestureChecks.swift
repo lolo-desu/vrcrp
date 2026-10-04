@@ -130,3 +130,62 @@ final class GestureChecks: XCTestCase {
         XCTAssertTrue(app.staticTexts["资料已就绪"].waitForExistence(timeout:5))
     }
 }
+
+final class AppPreferenceChecks: XCTestCase {
+    let app=XCUIApplication(bundleIdentifier:"local.erp.stable")
+    override func setUpWithError() throws { continueAfterFailure=false }
+    func report() -> [String:Any] {
+        let label=app.staticTexts["vrcrp-preference-report"]
+        guard label.exists,let data=label.label.data(using:.utf8),let value=try? JSONSerialization.jsonObject(with:data) as? [String:Any] else { return [:] }
+        return value
+    }
+    func awaitReport(_ predicate:@escaping ([String:Any])->Bool,timeout:TimeInterval=12) {
+        expectation(for:NSPredicate { _,_ in predicate(self.report()) },evaluatedWith:app)
+        waitForExpectations(timeout:timeout)
+    }
+    func testBackgroundListenerBeyondShortGraceAndLogout() {
+        app.launchArguments=["--verify-background"];app.launch()
+        let toggle=app.switches["后台监听（实验）"]
+        XCTAssertTrue(toggle.waitForExistence(timeout:15))
+        awaitReport { (($0["backgroundState"] as? [String:Any])?["enabled"] as? Bool)==false }
+        toggle.tap()
+        awaitReport { (($0["backgroundState"] as? [String:Any])?["enabled"] as? Bool)==true }
+        XCUIDevice.shared.press(.home)
+        let backgroundWindow=expectation(description:"Collect real background polls beyond the 22-second grace period")
+        DispatchQueue.main.asyncAfter(deadline:.now()+75){backgroundWindow.fulfill()}
+        wait(for:[backgroundWindow],timeout:85)
+        app.activate()
+        awaitReport { value in
+            let journal=value["journal"] as? [[String:Any]] ?? []
+            return journal.contains { state in (state["background"] as? Bool)==true && (state["audioActive"] as? Bool)==true && (state["graceEnded"] as? Bool)==true && (state["polls"] as? Int ?? 0)>=5 }
+        }
+        let data=report(),state=data["backgroundState"] as? [String:Any] ?? [:]
+        let messages=state["delivered"] as? [[String:Any]] ?? []
+        XCTAssertEqual(messages.count,1,"Old or repeated background messages must not generate notifications")
+        XCTAssertEqual(messages.first?["id"] as? String,"background-new")
+        XCTAssertEqual(messages.first?["body"] as? String,"后台收到的测试消息")
+        XCTAssertEqual(messages.first?["background"] as? Bool,true)
+        XCTAssertEqual(state["unread"] as? Int,8,"A paginated match list must not replace total account unread count")
+        app.buttons["注销测试"].tap()
+        awaitReport { value in let s=value["backgroundState"] as? [String:Any] ?? [:];return (s["state"] as? String)=="login" && (s["audioActive"] as? Bool)==false && (s["syncActive"] as? Bool)==false }
+        toggle.tap()
+        awaitReport { (($0["backgroundState"] as? [String:Any])?["enabled"] as? Bool)==false }
+    }
+    func testPalettesUpdateNativeNavigationAndRestoreWebsite() {
+        app.launchArguments=["--verify-preferences"];app.launch()
+        XCTAssertTrue(app.buttons["Mono"].waitForExistence(timeout:15))
+        for (name,id) in [("Mono","mono"),("海盐蓝","blue"),("苔绿","green"),("莓紫","purple"),("暖橙","orange"),("樱粉","pink")] {
+            app.buttons[name].tap()
+            awaitReport { value in
+                guard let primary=value["primary"] as? [Double],let native=value["nativeSelection"] as? [String:Any],let foreground=native["foreground"] as? [Double] else{return false}
+                return (value["palette"] as? String)==id && primary.count==3 && foreground.count==3 && zip(primary,foreground).allSatisfy{abs($0.0/255-$0.1)<0.002}
+            }
+        }
+        app.buttons["Mono"].tap();app.buttons["切换深色测试"].tap()
+        awaitReport { value in guard let background=value["background"] as? [Double],let status=value["nativeStatus"] as? [Double] else{return false};return (value["palette"] as? String)=="mono" && (value["dark"] as? Bool)==true && (background.max() ?? 255)<30 && status.count==3 && Set(status).count==1 }
+        app.terminate();app.launch()
+        awaitReport { $0["palette"] as? String=="mono" }
+        app.buttons["官网原样"].tap()
+        awaitReport { $0["palette"] as? String=="default" && ($0["background"] as? [Int])==[255,235,117] }
+    }
+}

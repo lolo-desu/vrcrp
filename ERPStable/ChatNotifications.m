@@ -1,4 +1,5 @@
 #import "ChatNotifications.h"
+#import "BackgroundAudioLease.h"
 #import <UIKit/UIKit.h>
 #import <UserNotifications/UserNotifications.h>
 #import <ImageIO/ImageIO.h>
@@ -35,6 +36,19 @@ static NSString *VRFingerprint(NSDictionary *last) {
 @property(nonatomic) BOOL requesting;
 @property(nonatomic, strong) NSCache<NSString *, NSData *> *avatars;
 @property(nonatomic, strong) NSMutableDictionary<NSString *, NSMutableArray *> *avatarWaiters;
+@property(nonatomic,strong) BackgroundAudioLease *audioLease;
+@property(nonatomic) BOOL backgroundRequested;
+@property(nonatomic) BOOL sessionExpired;
+@property(nonatomic) NSUInteger backgroundEpoch;
+@property(nonatomic) NSUInteger requestCycle;
+@property(nonatomic,strong) NSArray<NSHTTPCookie *> *ownedCookies;
+@property(nonatomic,strong) NSDate *lastBackgroundSuccess;
+@property(nonatomic) NSTimeInterval nextBackgroundPoll;
+@property(nonatomic) NSUInteger backgroundFailures;
+#if ERP_TESTING
+@property(nonatomic) NSUInteger backgroundPolls;
+@property(nonatomic,strong) NSMutableArray *backgroundDelivered;
+#endif
 @end
 @implementation ChatNotifications
 - (instancetype)initWithCookieStore:(WKHTTPCookieStore *)store {
@@ -47,9 +61,51 @@ static NSString *VRFingerprint(NSDictionary *last) {
     NSURLSessionConfiguration *config=NSURLSessionConfiguration.ephemeralSessionConfiguration;
     config.timeoutIntervalForRequest=12; config.timeoutIntervalForResource=18;
     config.HTTPShouldSetCookies=NO; self.session=[NSURLSession sessionWithConfiguration:config];
+    self.audioLease=[BackgroundAudioLease new];self.ownedCookies=@[];
+    _backgroundListeningEnabled=[NSUserDefaults.standardUserDefaults boolForKey:@"VRBackgroundListening"];
+    __weak ChatNotifications *weakSelf=self;
+    self.audioLease.onChange=^{
+        ChatNotifications *owner=weakSelf;if(!owner)return;
+        if(owner.backgroundRequested&&owner.backgroundListeningEnabled&&owner.audioLease.active&&!owner.backgroundTimer)[owner startBackgroundTimer];
+        if(owner.backgroundRequested&&![owner backgroundSyncActive]){[owner.backgroundTimer invalidate];owner.backgroundTimer=nil;owner.backgroundEpoch++;owner.requestCycle++;owner.requesting=NO;}
+        [owner publishBackgroundState];
+    };
+#if ERP_TESTING
+    self.backgroundDelivered=[NSMutableArray new];
+#endif
     return self;
 }
+- (void)dealloc { [self.backgroundTimer invalidate];[self.audioLease stop];[self.session invalidateAndCancel]; }
 - (BOOL)authenticated { return self.userID.length>0; }
+- (BOOL)backgroundSyncActive { return self.backgroundRequested&&!self.sessionExpired&&self.authenticated&&(self.backgroundTask!=UIBackgroundTaskInvalid||self.backgroundListeningEnabled&&self.audioLease.active); }
+- (NSDictionary *)backgroundState {
+    NSString *state=!self.backgroundListeningEnabled?@"off":self.sessionExpired?@"expired":!self.authenticated?@"login":!self.backgroundRequested?@"foreground":self.audioLease.active?@"listening":@"paused";
+    NSString *description=[@{@"off":@"后台监听已关闭",@"expired":@"登录已过期，打开 App 登录后恢复",@"login":@"登录后可启用后台监听",@"foreground":@"前台同步中，离开 App 后尝试后台监听",@"listening":@"后台监听中",@"paused":self.audioLease.reason.length?self.audioLease.reason:@"后台监听已暂停，打开 App 可恢复"} objectForKey:state];
+    return @{@"enabled":@(self.backgroundListeningEnabled),@"state":state,@"description":description,@"lastSync":self.lastBackgroundSuccess?@([self.lastBackgroundSuccess timeIntervalSince1970]*1000):NSNull.null,@"networkRetry":@(self.backgroundFailures>0)};
+}
+- (void)publishBackgroundState { if(self.onBackgroundStateChanged)self.onBackgroundStateChanged([self backgroundState]); }
+- (void)setBackgroundListeningEnabled:(BOOL)enabled {
+    if(_backgroundListeningEnabled==enabled){[self publishBackgroundState];return;}
+    _backgroundListeningEnabled=enabled;[NSUserDefaults.standardUserDefaults setBool:enabled forKey:@"VRBackgroundListening"];
+    if(enabled){if(self.backgroundRequested&&self.authenticated&&!self.sessionExpired){[self.audioLease start];[self startBackgroundTimer];}}
+    else{[self.audioLease stop];if(self.backgroundRequested){[self endBackgroundSync];[self beginBackgroundSync];}}
+    [self publishBackgroundState];
+}
+- (void)refreshOwnedCookies {
+    NSUInteger generation=self.generation;
+    [self.store getAllCookies:^(NSArray<NSHTTPCookie *> *cookies){
+        dispatch_async(dispatch_get_main_queue(),^{if(generation!=self.generation)return;NSMutableArray *owned=[NSMutableArray new];for(NSHTTPCookie *cookie in cookies)if([cookie.domain isEqual:@"erp.sex"]||[cookie.domain isEqual:@".erp.sex"])[owned addObject:cookie];self.ownedCookies=owned;});
+    }];
+}
+- (void)prepareBackgroundListening {
+    [self refreshOwnedCookies];if(self.backgroundListeningEnabled&&self.authenticated&&!self.sessionExpired)[self.audioLease start];
+}
+- (NSURL *)APIURL:(NSString *)path {
+#if ERP_TESTING
+    if([NSProcessInfo.processInfo.arguments containsObject:@"--verify-background"])return [NSURL URLWithString:[@"http://127.0.0.1:18765" stringByAppendingString:path]];
+#endif
+    return [NSURL URLWithString:[@"https://erp.sex" stringByAppendingString:path]];
+}
 - (void)remember:(NSString *)messageID {
     [self.seen addObject:messageID]; if(self.seen.count>512) [self.seen removeObjectAtIndex:0];
 }
@@ -67,6 +123,9 @@ static NSString *VRFingerprint(NSDictionary *last) {
     if([event[@"senderId"] isEqual:self.userID])return;
     NSString *path=[@"/matches/" stringByAppendingString:matchID];
     if(UIApplication.sharedApplication.applicationState==UIApplicationStateActive&&[self.activePath isEqual:path])return;
+#if ERP_TESTING
+    if([NSProcessInfo.processInfo.arguments containsObject:@"--verify-background"])[self.backgroundDelivered addObject:@{@"id":messageID,@"body":event[@"body"]?:@"",@"background":@(UIApplication.sharedApplication.applicationState==UIApplicationStateBackground)}];
+#endif
     [UNUserNotificationCenter.currentNotificationCenter removePendingNotificationRequestsWithIdentifiers:@[@"vrcrp-unread"]];
     [UNUserNotificationCenter.currentNotificationCenter removeDeliveredNotificationsWithIdentifiers:@[@"vrcrp-unread"]];
     [self notifyMessage:event path:path identifier:[@"vrcrp-message-" stringByAppendingString:messageID] thread:matchID];
@@ -177,9 +236,11 @@ static NSString *VRFingerprint(NSDictionary *last) {
 - (void)handleEvent:(NSDictionary *)event {
     NSString *kind=event[@"kind"];
     if([kind isEqual:@"session"]) {
+        self.sessionExpired=NO;
         NSString *user=VRValidID(event[@"userId"])?event[@"userId"]:@"";
         if(![self.userID isEqual:user]) {
             [self endBackgroundSync]; self.generation++; self.userID=user; self.started=NSDate.date;
+            self.ownedCookies=@[];self.lastBackgroundSuccess=nil;self.backgroundFailures=0;
             [self.latest removeAllObjects]; [self.seen removeAllObjects]; self.unread=-1;
             [self.avatars removeAllObjects];[self.avatarWaiters removeAllObjects];
             if(!user.length) { [self updateBadge:0]; [UNUserNotificationCenter.currentNotificationCenter removeAllDeliveredNotifications]; }
@@ -196,6 +257,7 @@ static NSString *VRFingerprint(NSDictionary *last) {
             [self.avatars removeAllObjects];[self.avatarWaiters removeAllObjects];
         }
         self.headers=headers;
+        [self refreshOwnedCookies];[self publishBackgroundState];
     } else if([kind isEqual:@"counters"]&&[event[@"unread"] isKindOfClass:NSNumber.class]) [self updateBadge:[event[@"unread"] integerValue]];
     else if([kind isEqual:@"chatMessage"]) [self deliver:event];
     else if([kind isEqual:@"genericMessage"]&&self.authenticated&&NSDate.timeIntervalSinceReferenceDate-self.detailedAt>3) {
@@ -214,22 +276,38 @@ static NSString *VRFingerprint(NSDictionary *last) {
         }];
     }
 }
-- (void)beginBackgroundSync {
-    if(!self.authenticated||self.backgroundTask!=UIBackgroundTaskInvalid)return;
+- (void)startBackgroundTimer {
+    if(![self backgroundSyncActive]||self.backgroundTimer)return;
     __weak ChatNotifications *weakSelf=self;
-    self.backgroundTask=[UIApplication.sharedApplication beginBackgroundTaskWithName:@"Finish chat synchronization" expirationHandler:^{[weakSelf endBackgroundSync];}];
-    if(self.backgroundTask==UIBackgroundTaskInvalid)return;
+    self.backgroundTimer=[NSTimer timerWithTimeInterval:10 repeats:YES block:^(NSTimer *timer){[weakSelf backgroundPoll];}];
+    [NSRunLoop.mainRunLoop addTimer:self.backgroundTimer forMode:NSRunLoopCommonModes];
+}
+- (void)finishBackgroundGrace {
+    if(self.backgroundTask!=UIBackgroundTaskInvalid){UIBackgroundTaskIdentifier task=self.backgroundTask;self.backgroundTask=UIBackgroundTaskInvalid;[UIApplication.sharedApplication endBackgroundTask:task];}
+    if(![self backgroundSyncActive]){[self.backgroundTimer invalidate];self.backgroundTimer=nil;self.backgroundEpoch++;self.requestCycle++;self.requesting=NO;}
+    [self publishBackgroundState];
+}
+- (void)beginBackgroundSync {
+    if(!self.authenticated||self.sessionExpired||self.backgroundRequested)return;
+    self.backgroundRequested=YES;self.backgroundEpoch++;self.nextBackgroundPoll=0;
+    __weak ChatNotifications *weakSelf=self;
+    self.backgroundTask=[UIApplication.sharedApplication beginBackgroundTaskWithName:@"Finish chat synchronization" expirationHandler:^{[weakSelf finishBackgroundGrace];}];
+    if(self.backgroundListeningEnabled&&!self.audioLease.active)[self.audioLease start];
     [self backgroundPoll];
-    self.backgroundTimer=[NSTimer scheduledTimerWithTimeInterval:10 repeats:NO block:^(NSTimer *timer){[weakSelf backgroundPoll];}];
+    [self startBackgroundTimer];
     UIBackgroundTaskIdentifier task=self.backgroundTask;
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,22*NSEC_PER_SEC),dispatch_get_main_queue(),^{if(weakSelf.backgroundTask==task)[weakSelf endBackgroundSync];});
+    NSUInteger epoch=self.backgroundEpoch;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,22*NSEC_PER_SEC),dispatch_get_main_queue(),^{if(weakSelf.backgroundTask==task&&weakSelf.backgroundEpoch==epoch)[weakSelf finishBackgroundGrace];});
+    [self publishBackgroundState];
 }
 - (void)endBackgroundSync {
+    self.backgroundRequested=NO;self.backgroundEpoch++;self.requestCycle++;self.requesting=NO;
     [self.backgroundTimer invalidate]; self.backgroundTimer=nil;
     if(self.backgroundTask!=UIBackgroundTaskInvalid) {
         UIBackgroundTaskIdentifier task=self.backgroundTask; self.backgroundTask=UIBackgroundTaskInvalid;
         [UIApplication.sharedApplication endBackgroundTask:task];
     }
+    [self.audioLease stop];[self publishBackgroundState];
 }
 - (void)deliverBackgroundMessage:(NSDictionary *)last item:(NSDictionary *)item {
     if([last[@"recalled"] isEqual:@YES]||!VRValidID(last[@"id"])||!VRValidID(item[@"id"]))return;
@@ -242,13 +320,13 @@ static NSString *VRFingerprint(NSDictionary *last) {
     NSString *avatar=[media[@"view"] isEqual:@"show"]?VRText(media[@"thumbUrl"],4096,VRText(media[@"url"],4096,@"")):@"";
     [self deliver:@{@"messageId":last[@"id"],@"matchId":item[@"id"],@"senderId":last[@"senderId"]?:@"",@"displayId":VRText(peer[@"id"],120,VRText(last[@"senderId"],120,@"")),@"avatarURL":avatar,@"title":VRText(peer[@"displayName"],80,@"新聊天消息"),@"body":body}];
 }
-- (void)hydrateBackgroundMatch:(NSDictionary *)item request:(NSURLRequest *)request delta:(NSInteger)delta changed:(BOOL)changed generation:(NSUInteger)generation {
+- (void)hydrateBackgroundMatch:(NSDictionary *)item request:(NSURLRequest *)request delta:(NSInteger)delta changed:(BOOL)changed generation:(NSUInteger)generation epoch:(NSUInteger)epoch {
     NSMutableURLRequest *detail=[request mutableCopy];
-    detail.URL=[NSURL URLWithString:[NSString stringWithFormat:@"https://erp.sex/api/v1/matches/%@/messages?limit=20",item[@"id"]]];
+    detail.URL=[self APIURL:[NSString stringWithFormat:@"/api/v1/matches/%@/messages?limit=20",item[@"id"]]];
     [[self.session dataTaskWithRequest:detail completionHandler:^(NSData *data,NSURLResponse *response,NSError *error){
         id raw=data?[NSJSONSerialization JSONObjectWithData:data options:0 error:nil]:nil;
         dispatch_async(dispatch_get_main_queue(),^{
-            if(generation!=self.generation||self.backgroundTask==UIBackgroundTaskInvalid||error||[(NSHTTPURLResponse *)response statusCode]!=200||![raw isKindOfClass:NSDictionary.class])return;
+            if(generation!=self.generation||epoch!=self.backgroundEpoch||![self backgroundSyncActive]||error||[(NSHTTPURLResponse *)response statusCode]!=200||![raw isKindOfClass:NSDictionary.class])return;
             id value=[raw[@"data"] isKindOfClass:NSDictionary.class]?raw[@"data"]:raw;
             if(![value[@"items"] isKindOfClass:NSArray.class])return;
             NSMutableArray *candidates=[NSMutableArray new];
@@ -267,20 +345,20 @@ static NSString *VRFingerprint(NSDictionary *last) {
     }] resume];
 }
 - (void)backgroundPoll {
-    if(self.backgroundTask==UIBackgroundTaskInvalid||!self.authenticated||self.requesting)return;
-    self.requesting=YES; NSUInteger generation=self.generation;
-    [self.store getAllCookies:^(NSArray<NSHTTPCookie *> *cookies){
-        if(generation!=self.generation||self.backgroundTask==UIBackgroundTaskInvalid){self.requesting=NO;return;}
+    if(![self backgroundSyncActive]||self.requesting||NSDate.timeIntervalSinceReferenceDate<self.nextBackgroundPoll)return;
+    self.requesting=YES;NSUInteger generation=self.generation,epoch=self.backgroundEpoch,cycle=++self.requestCycle;
+    void (^poll)(NSArray<NSHTTPCookie *> *)=^(NSArray<NSHTTPCookie *> *cookies){
+        if(generation!=self.generation||epoch!=self.backgroundEpoch||![self backgroundSyncActive]){if(cycle==self.requestCycle)self.requesting=NO;return;}
         NSMutableArray *owned=[NSMutableArray new];
-        for(NSHTTPCookie *cookie in cookies)if([cookie.domain isEqual:@"erp.sex"]||[cookie.domain isEqual:@".erp.sex"]) [owned addObject:cookie];
-        NSMutableURLRequest *request=[NSMutableURLRequest requestWithURL:[NSURL URLWithString:@"https://erp.sex/api/v1/matches?state=active"]];
+        for(NSHTTPCookie *cookie in cookies)if(([cookie.domain isEqual:@"erp.sex"]||[cookie.domain isEqual:@".erp.sex"])&&(!cookie.expiresDate||[cookie.expiresDate timeIntervalSinceNow]>0)) [owned addObject:cookie];
+        NSMutableURLRequest *request=[NSMutableURLRequest requestWithURL:[self APIURL:@"/api/v1/matches?state=active"]];
         request.allHTTPHeaderFields=self.headers;
         for(NSString *key in [NSHTTPCookie requestHeaderFieldsWithCookies:owned]) [request setValue:[NSHTTPCookie requestHeaderFieldsWithCookies:owned][key] forHTTPHeaderField:key];
-        NSMutableURLRequest *counterRequest=[request mutableCopy]; counterRequest.URL=[NSURL URLWithString:@"https://erp.sex/api/v1/me/counters"];
+        NSMutableURLRequest *counterRequest=[request mutableCopy]; counterRequest.URL=[self APIURL:@"/api/v1/me/counters"];
         [[self.session dataTaskWithRequest:counterRequest completionHandler:^(NSData *data,NSURLResponse *response,NSError *error){
             id value=data?[NSJSONSerialization JSONObjectWithData:data options:0 error:nil]:nil;
             dispatch_async(dispatch_get_main_queue(),^{
-                if(generation!=self.generation||self.backgroundTask==UIBackgroundTaskInvalid||error||[(NSHTTPURLResponse *)response statusCode]!=200||![value isKindOfClass:NSDictionary.class])return;
+                if(generation!=self.generation||epoch!=self.backgroundEpoch||![self backgroundSyncActive]||error||[(NSHTTPURLResponse *)response statusCode]!=200||![value isKindOfClass:NSDictionary.class])return;
                 id payload=[value[@"data"] isKindOfClass:NSDictionary.class]?value[@"data"]:value;
                 if([payload[@"unreadMessages"] isKindOfClass:NSNumber.class])[self updateBadge:[payload[@"unreadMessages"] integerValue]];
             });
@@ -288,12 +366,17 @@ static NSString *VRFingerprint(NSDictionary *last) {
         [[self.session dataTaskWithRequest:request completionHandler:^(NSData *data,NSURLResponse *response,NSError *error){
             id value=data?[NSJSONSerialization JSONObjectWithData:data options:0 error:nil]:nil;
             dispatch_async(dispatch_get_main_queue(),^{
-                self.requesting=NO;
-                if(generation!=self.generation||self.backgroundTask==UIBackgroundTaskInvalid)return;
-                if([(NSHTTPURLResponse *)response statusCode]==401){[self endBackgroundSync];return;}
-                if(error||[(NSHTTPURLResponse *)response statusCode]!=200||![value isKindOfClass:NSDictionary.class])return;
+                if(cycle==self.requestCycle)self.requesting=NO;
+                if(generation!=self.generation||epoch!=self.backgroundEpoch||![self backgroundSyncActive])return;
+                if([(NSHTTPURLResponse *)response statusCode]==401){self.sessionExpired=YES;[self endBackgroundSync];return;}
+                if(error||[(NSHTTPURLResponse *)response statusCode]!=200||![value isKindOfClass:NSDictionary.class]){self.backgroundFailures=MIN(4,self.backgroundFailures+1);self.nextBackgroundPoll=NSDate.timeIntervalSinceReferenceDate+MIN(60,10*(1<<self.backgroundFailures));[self publishBackgroundState];return;}
                 id payload=[value[@"data"] isKindOfClass:NSDictionary.class]?value[@"data"]:value;
                 if(![payload[@"items"] isKindOfClass:NSArray.class])return;
+                self.backgroundFailures=0;self.nextBackgroundPoll=0;self.lastBackgroundSuccess=NSDate.date;
+#if ERP_TESTING
+                self.backgroundPolls++;
+#endif
+                [self publishBackgroundState];
                 NSInteger unread=0;
                 for(id item in payload[@"items"])if([item isKindOfClass:NSDictionary.class]){
                     NSInteger count=[item[@"unreadCount"] isKindOfClass:NSNumber.class]?MAX(0,[item[@"unreadCount"] integerValue]):0;
@@ -312,7 +395,7 @@ static NSString *VRFingerprint(NSDictionary *last) {
                     BOOL recent=created&&[created compare:self.started]!=NSOrderedAscending;
                     if(count>0&&(changed||delta>0||!previous&&recent)){
                         if([last isKindOfClass:NSDictionary.class]&&VRValidID(last[@"id"])&&(![last[@"type"] isEqual:@"text"]||[last[@"text"] isKindOfClass:NSString.class]))[self deliverBackgroundMessage:last item:item];
-                        else [self hydrateBackgroundMatch:item request:request delta:delta changed:changed generation:generation];
+                        else [self hydrateBackgroundMatch:item request:request delta:delta changed:changed generation:generation epoch:epoch];
                     }else if([last isKindOfClass:NSDictionary.class]&&VRValidID(last[@"id"]))[self remember:last[@"id"]];
                 }
                 // This response may be paginated: do not replace the account's
@@ -320,9 +403,17 @@ static NSString *VRFingerprint(NSDictionary *last) {
                 (void)unread;
             });
         }] resume];
-    }];
+    };
+    // WebKit's cookie process can sleep while the native listener is awake.
+    // Capture only this site's cookies while foregrounded; never poll WebKit
+    // IPC on each background tick or persist login credentials to disk.
+    if(self.ownedCookies.count)poll(self.ownedCookies);
+    else [self.store getAllCookies:^(NSArray<NSHTTPCookie *> *cookies){dispatch_async(dispatch_get_main_queue(),^{poll(cookies);});}];
 }
 #if ERP_TESTING
+- (NSDictionary *)verifyBackgroundState {
+    NSMutableDictionary *state=[[self backgroundState] mutableCopy];state[@"audioActive"]=@(self.audioLease.active);state[@"polls"]=@(self.backgroundPolls);state[@"unread"]=@(self.unread);state[@"delivered"]=[self.backgroundDelivered copy];state[@"syncActive"]=@([self backgroundSyncActive]);state[@"graceEnded"]=@(self.backgroundTask==UIBackgroundTaskInvalid);return state;
+}
 - (NSDictionary *)verifyNotificationContent {
     NSDictionary *event=@{@"title":@"测试联系人",@"displayId":@"peer-test-id",@"senderId":@"peer-test-id",@"body":@"测试消息内容"};
     NSData *avatar=[self initialAvatar:@"測"];
