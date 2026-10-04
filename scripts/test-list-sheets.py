@@ -27,7 +27,12 @@ with sync_playwright() as p:
   page.mouse.move(x,y);page.mouse.down();page.dispatch_event('body','pointercancel');page.wait_for_timeout(150);assert background()=='rgba(0, 0, 0, 0)';page.mouse.up()
   assert page.evaluate("nativeMessages.some(m=>m.kind==='rowPress'&&m.active)")
   assert page.evaluate("nativeMessages.filter(m=>m.kind==='rowPress').at(-1).active") is False
+  source_key=page.evaluate('__vrcrpEntryKey()')
+  page.evaluate('nativeMessages=[]')
   page.get_by_role('link',name='虚构会话').click();page.wait_for_function("location.pathname==='/matches/thread'")
+  page.wait_for_timeout(100)
+  presses=page.evaluate("nativeMessages.filter(m=>m.kind==='rowPress')")
+  assert presses and all(m['entryKey']==source_key for m in presses),presses
   page.evaluate('__vrcrpBack()');page.wait_for_function("location.pathname==='/matches'")
   assert page.locator('[data-vrcrp-row-pressed]').count()==0
   page.evaluate("openPage('/likes')");page.wait_for_timeout(150)

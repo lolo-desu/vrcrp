@@ -742,6 +742,9 @@ static UIView *ERPFocusedView(UIView *view) {
     NSUInteger rasterLayers=0;for(NSDictionary *layer in layout[@"layers"])if([layer[@"image"] isKindOfClass:NSString.class]&&[layer[@"image"] length])rasterLayers++;
     NSMutableDictionary *data=[@{@"feedbackVisible":@(feedback&&feedback.superview==underlay&&!underlay.hidden&&feedback.alpha>.9),@"feedbackAlpha":@(feedback.alpha),@"handoff":@(self.pageNavigation.handoff),@"transitioning":@(self.pageNavigation.transitioning),@"webEnabled":@(self.web.userInteractionEnabled),@"loads":@(self.documentLoads),@"measuredShapes":@([layout[@"layers"] count]),@"renderWidth":@(self.web.bounds.size.width)} mutableCopy];
     data[@"rasterLayers"]=@(rasterLayers);
+    data[@"pressOwner"]=[self.pageNavigation valueForKey:@"pressedEntry"]?:NSNull.null;
+    data[@"currentKey"]=self.pageNavigation.currentKey?:@"";
+    data[@"pressRemaining"]=@([[self.pageNavigation valueForKey:@"pressDeadline"] doubleValue]-NSDate.date.timeIntervalSinceReferenceDate);
     [self.web evaluateJavaScript:@"({path:location.pathname,pressedRows:document.querySelectorAll('[data-vrcrp-row-pressed]').length})" completionHandler:^(id value,NSError *error){
         if([value isKindOfClass:NSDictionary.class])[data addEntriesFromDictionary:value];if(error)data[@"error"]=error.localizedDescription;
         NSURL *dir=[NSFileManager.defaultManager URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask].firstObject;

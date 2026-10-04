@@ -79,12 +79,11 @@
       if(event.type==='observerAdded'||event.type==='observerRemoved')armPoll();
     });armPoll();
   }
-  // These are the site's actual infinite-list keys. Warm data only: the
-  // component's on-screen read/seen effects must never run during preloading.
+  // Warm lists whose read acknowledgement is a separate explicit operation.
+  // Received likes/visitors have no separate visit acknowledgement operation;
+  // fetch their counters early, but leave those endpoints to the visible page.
   const warmLists=[
-    {key:['likes','received'],url:'/api/v1/likes/received'},
     {key:['likes','sent'],url:'/api/v1/likes/sent'},
-    {key:['visitors'],url:'/api/v1/visitors'},
     {key:['notifications'],url:'/api/v1/notifications',global:true},
     {key:['matches','active'],url:'/api/v1/matches?state=active'},
     {key:['matches','unmatched'],url:'/api/v1/matches?state=unmatched'}

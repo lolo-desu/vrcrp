@@ -6,11 +6,11 @@
   let lastPath = location.pathname, queued = false;
   let seen = new WeakSet(), initializedPane = null;
   let press=null,pressTimer=0;
-  const post=value=>{try{window.webkit?.messageHandlers?.erpNativeApp?.postMessage({...value,entryKey:window.__vrcrpEntryKey?.()});}catch{}};
-  function clearPress(reason='cancel'){clearTimeout(pressTimer);if(!press)return;press.row.removeAttribute('data-vrcrp-row-pressed');press=null;post({kind:'rowPress',active:false,reason:typeof reason==='string'?reason:'cancel'});}
+  const post=(value,owner=window.__vrcrpEntryKey?.())=>{try{window.webkit?.messageHandlers?.erpNativeApp?.postMessage({...value,entryKey:owner});}catch{}};
+  function clearPress(reason='cancel'){clearTimeout(pressTimer);if(!press)return;const owner=press.entryKey;press.row.removeAttribute('data-vrcrp-row-pressed');press=null;post({kind:'rowPress',active:false,reason:typeof reason==='string'?reason:'cancel'},owner);}
   function rowFor(target){return location.pathname==='/matches'?target.closest?.('#main [data-vrcrp-chat-row]'):null;}
-  function startPress(row,event){clearPress();press={row,x:event.clientX,y:event.clientY,started:performance.now()};row.dataset.vrcrpRowPressed='true';const r=row.getBoundingClientRect(),fg=getComputedStyle(document.documentElement).getPropertyValue('--fg').trim().split(/\s+/).map(Number);post({kind:'rowPress',active:true,rect:{x:r.x,y:r.y,width:r.width,height:r.height},ink:fg.length===3&&fg.every(Number.isFinite)?[...fg.map(n=>n/255),.12]:[0,0,0,.12]});}
-  function releasePress(){if(!press)return;post({kind:'rowPress',active:true,released:true});pressTimer=setTimeout(()=>clearPress('finished'),260);}
+  function startPress(row,event){clearPress();press={row,x:event.clientX,y:event.clientY,started:performance.now(),entryKey:window.__vrcrpEntryKey?.()};row.dataset.vrcrpRowPressed='true';const r=row.getBoundingClientRect(),fg=getComputedStyle(document.documentElement).getPropertyValue('--fg').trim().split(/\s+/).map(Number);post({kind:'rowPress',active:true,rect:{x:r.x,y:r.y,width:r.width,height:r.height},ink:fg.length===3&&fg.every(Number.isFinite)?[...fg.map(n=>n/255),.12]:[0,0,0,.12]},press.entryKey);}
+  function releasePress(){if(!press)return;post({kind:'rowPress',active:true,released:true},press.entryKey);pressTimer=setTimeout(()=>clearPress('finished'),260);}
   function animate(element, frames, duration = 150) {
     if (!element || reduce() || element.getAnimations().length) return;
     element.animate(frames, { duration, easing: 'cubic-bezier(.2,.8,.2,1)' });

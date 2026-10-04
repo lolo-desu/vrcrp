@@ -358,6 +358,9 @@
         if([self.pressedEntry isEqual:oldKey]&&!CGRectIsEmpty(self.pressedFrame)&&(!self.pressDeadline||self.pressDeadline>NSDate.date.timeIntervalSinceReferenceDate)){
             self.rowFeedback=[[UIView alloc] initWithFrame:self.pressedFrame];self.rowFeedback.backgroundColor=self.pressedInk;self.rowFeedback.userInteractionEnabled=NO;
             [self.underlay insertSubview:self.rowFeedback belowSubview:self.shade];
+            // Keep the departing row's feedback visible through this push,
+            // even when measuring the incoming surface delayed presentation.
+            self.pressDeadline=MAX(self.pressDeadline,NSDate.date.timeIntervalSinceReferenceDate+.26);
             [self fadeRowFeedback];
         }
         self.underlay.transform=CGAffineTransformIdentity;self.shade.alpha=0;
