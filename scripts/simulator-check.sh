@@ -59,6 +59,21 @@ wait_for_recording() {
     sleep 1
   done
 }
+start_recording() {
+  local video="$1" log="$2" attempt
+  for attempt in 1 2; do
+    rm -f "$video" "$log"
+    xcrun simctl io "$SIM_ID" recordVideo --codec=h264 "$video" > "$log" 2>&1 &
+    VIDEO_PID=$!
+    if wait_for_recording "$log"; then return 0; fi
+    kill -INT "$VIDEO_PID" >/dev/null 2>&1 || true
+    wait "$VIDEO_PID" || true
+    VIDEO_PID=""
+    echo "Recorder startup attempt $attempt failed; navigation has not started" >&2
+  done
+  cat "$log" >&2
+  return 1
+}
 wait_for_report() {
   local report="$1"
   for attempt in {1..90}; do
@@ -213,20 +228,22 @@ assert restored['path']=='/matches' and restored['index']==0 and restored['nativ
 print('PASS: UIKit nested page previews, finger tracking, reverse-velocity cancellation, draft retention, committed parent return and no document reload')
 PYMOTION
 xcrun simctl io "$SIM_ID" screenshot "$ROOT/build/app-motion.png"
-xcrun simctl io "$SIM_ID" recordVideo --codec=h264 "$ROOT/build/handoff.mov" > "$ROOT/build/handoff-record.log" 2>&1 &
-VIDEO_PID=$!
-wait_for_recording "$ROOT/build/handoff-record.log"
-xcrun simctl launch --terminate-running-process "$SIM_ID" local.erp.stable --verify-handoff
+# End the previous fixture before recording: it uses the same palette, so its
+# last frame would otherwise arm the checker across termination and relaunch.
+xcrun simctl terminate "$SIM_ID" local.erp.stable
+sleep 2
+start_recording "$ROOT/build/handoff.mov" "$ROOT/build/handoff-record.log"
+xcrun simctl launch "$SIM_ID" local.erp.stable --verify-handoff
 wait_for_report handoff-completed.json
 kill -INT "$VIDEO_PID"
 wait "$VIDEO_PID" || true
 VIDEO_PID=""
 cp "$DATA_PATH/Documents/"handoff-*.json "$ROOT/build/"
 swift "$ROOT/scripts/check-handoff-video.swift" "$ROOT/build/handoff.mov" "$ROOT/build/handoff-video.json"
-xcrun simctl io "$SIM_ID" recordVideo --codec=h264 "$ROOT/build/continuity.mov" > "$ROOT/build/continuity-record.log" 2>&1 &
-VIDEO_PID=$!
-wait_for_recording "$ROOT/build/continuity-record.log"
-xcrun simctl launch --terminate-running-process "$SIM_ID" local.erp.stable --verify-continuity
+xcrun simctl terminate "$SIM_ID" local.erp.stable
+sleep 2
+start_recording "$ROOT/build/continuity.mov" "$ROOT/build/continuity-record.log"
+xcrun simctl launch "$SIM_ID" local.erp.stable --verify-continuity
 wait_for_report continuity-completed.json
 kill -INT "$VIDEO_PID"
 wait "$VIDEO_PID" || true
