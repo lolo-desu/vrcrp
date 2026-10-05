@@ -9,6 +9,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)prepareBackgroundListening;
 - (instancetype)initWithCookieStore:(WKHTTPCookieStore *)store;
 - (void)handleEvent:(NSDictionary *)event;
+- (BOOL)shouldPresentNotificationInfo:(NSDictionary *)info;
 - (void)beginBackgroundSync;
 - (void)endBackgroundSync;
 #if ERP_TESTING

@@ -50,8 +50,9 @@ public class MessageService extends Service {
                             if(messages!=null)for(int n=0;n<messages.length();n++){JSONObject message=messages.optJSONObject(n);if(message!=null&&!user.equals(message.optString("senderId"))&&!message.optBoolean("recalled")&&(timestamp(message.optString("createdAt"))>=started||increased)){if(last==null||timestamp(message.optString("createdAt"))>=timestamp(last.optString("createdAt")))last=message;}}
                         }
                         if(last==null||user.equals(last.optString("senderId"))||last.optBoolean("recalled"))continue;
-                        JSONObject notice=new JSONObject().put("messageId",last.optString("id")).put("matchId",id).put("senderId",last.optString("senderId")).put("title",peer==null?"新聊天消息":peer.optString("displayName","新聊天消息")).put("body",messageBody(last));
-                        Bitmap avatar=avatar(peer,cookies);if(owner==generation&&!destroyed&&user.equals(prefs().getString("user","")))ChatAlerts.show(this,notice,avatar);
+                        JSONObject notice=new JSONObject().put("messageId",last.optString("id")).put("matchId",id).put("createdAt",last.optString("createdAt")).put("senderId",last.optString("senderId")).put("title",peer==null?"新聊天消息":peer.optString("displayName","新聊天消息")).put("body",messageBody(last));
+                        ChatReadState.Token pending=ChatAlerts.prepare(this,notice);if(pending==null)continue;
+                        Bitmap avatar=avatar(peer,cookies);if(owner==generation&&!destroyed&&user.equals(prefs().getString("user","")))ChatAlerts.finish(this,notice,avatar,pending);
                     }
                     cursor=result.optString("nextCursor","");if(cursor.isEmpty()||"null".equals(cursor)||!visited.add(cursor)||total<=0)break;
                 }

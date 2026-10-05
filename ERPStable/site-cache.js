@@ -195,26 +195,46 @@
     patchItems(c,q=>family(q)==='notifications',items=>items.map(item=>notificationReads.has(item.id)?{...item,read:true}:item));
   }
   function acknowledgeThread(id,lastMessageId){
-    const c=client();if(!c||!idOK(id)||!idOK(lastMessageId))return;
-    let stamp='';
-    for(const b of bodies.values())if(b.d.messages&&b.d.id===id){const m=unwrap(b.raw)?.items?.find(m=>m.id===lastMessageId);if(m?.createdAt)stamp=m.createdAt;}
+    if(!idOK(id)||!idOK(lastMessageId))return;
+    const c=client(),known=[];
+    for(const b of bodies.values())if(b.d.messages&&b.d.id===id)known.push(...(unwrap(b.raw)?.items||[]));
+    for(const q of c?.getQueryCache().getAll()||[])if(scoped(q)&&family(q)==='matches'){
+      const data=q.state.data,items=data?.pages?.flatMap(p=>p.items||[])||data?.items||[];
+      if(q.queryKey.includes(id))known.push(...items);
+      for(const item of items)if(item.id===id&&item.lastMessage)known.push(item.lastMessage);
+    }
+    let stamp=known.find(m=>m.id===lastMessageId)?.createdAt||'';
+    const prior=threadReads.get(id),ids=new Set(prior?.messageIds||[]),time=Date.parse(stamp);
+    ids.add(lastMessageId);
+    for(const m of known)if(idOK(m.id)&&Number.isFinite(time)&&Date.parse(m.createdAt)<time)ids.add(m.id);
+    while(ids.size>256)ids.delete(ids.values().next().value);
+    const forward=!prior||!prior.stamp||Number.isFinite(time)&&time>=Date.parse(prior.stamp);
+    const read={lastMessageId:forward?lastMessageId:prior.lastMessageId,stamp:forward?stamp:prior.stamp,messageIds:ids};
+    threadReads.set(id,read);while(threadReads.size>256)threadReads.delete(threadReads.keys().next().value);
     let removed=0;
-    patchItems(c,q=>family(q)==='matches'&&q.queryKey.length===5,items=>items.map(item=>{
+    if(c)patchItems(c,q=>family(q)==='matches'&&q.queryKey.length===5,items=>items.map(item=>{
       if(item.id!==id)return item;
       const latest=item.lastMessage;
-      if(latest?.id!==lastMessageId&&latest?.senderId!==user&&latest?.createdAt&&(!stamp||latest.createdAt>stamp))return item;
+      if(latest?.senderId!==user&&!isMessageRead(id,latest?.id,latest?.createdAt))return item;
       removed=Math.max(removed,item.unreadCount||0);return {...item,unreadCount:0};
     }));
-    threadReads.set(id,{lastMessageId,stamp});while(threadReads.size>256)threadReads.delete(threadReads.keys().next().value);
     patchCounter('unreadMessages',n=>n-removed);
+    if(!c)readRevision++;
+    window.__vrcrpChatRead?.({userId:user,matchId:id,lastMessageId:read.lastMessageId,createdAt:read.stamp,messageIds:[...ids],revision:readRevision});
+  }
+  function isMessageRead(id,messageId,createdAt){
+    const read=threadReads.get(id);if(!read)return false;
+    if(messageId===read.lastMessageId||read.messageIds.has(messageId))return true;
+    const time=Date.parse(createdAt),through=Date.parse(read.stamp);
+    return Number.isFinite(time)&&Number.isFinite(through)&&time<through;
   }
   function sanitize(value,resource){
     if(!Array.isArray(value?.items))return value;
     return {...value,items:value.items.map(item=>{
       if(resource==='notifications'&&notificationReads.has(item.id))return {...item,read:true};
       if(resource==='matches'){
-        const read=threadReads.get(item.id),last=item.lastMessage;
-        if(read&&(last?.id===read.lastMessageId||read.stamp&&last?.createdAt&&last.createdAt<=read.stamp))return {...item,unreadCount:0};
+        const last=item.lastMessage;
+        if(isMessageRead(item.id,last?.id,last?.createdAt))return {...item,unreadCount:0};
       }
       return item;
     })};
@@ -492,6 +512,8 @@
   window.__vrcrpSiteCache = {
     account:()=>user,
     readVersion:()=>readRevision,
+    isMessageRead,
+    reconcileMatches:value=>sanitize(value,'matches'),
     reconcileCounters:(value,stamp)=>stamp===undefined||stamp===readRevision?value:client()?.getQueryData(['counters'])||value,
     notificationItems(){const c=client();if(!c)return [];const q=c.getQueryCache().getAll().find(q=>scoped(q)&&family(q)==='notifications'&&observed(q));return q?.state.data?.pages?.flatMap(p=>p.items||[])||q?.state.data?.items||[];},
     async readVisibleNotifications(ids){

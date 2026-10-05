@@ -3,7 +3,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('nod
 const {QueryClient,QueryObserver}=require(path.join(process.env.TEST_NODE_MODULES||'/workspace/vrcrp-test-tools/node_modules','@tanstack/query-core'));
 const tick=async()=>{for(let i=0;i<5;i++)await new Promise(resolve=>setImmediate(resolve));};
 const clone=value=>JSON.parse(JSON.stringify(value));
-function fixture(){
+function fixture(withNotifications=false){
  const client=new QueryClient({defaultOptions:{queries:{retry:false,staleTime:Infinity,gcTime:Infinity}}});client.setQueryData(['me'],{id:'self'});
  const received=['peer-1','peer-2'].map(id=>({user:{id},createdAt:'2026-01-01'}));
  const server={received,sent:clone(received),visitors:[{user:{id:'visitor-1'},new:true}],matches:[{id:'thread-1',unreadCount:2}],posts:[{id:'post-1',text:'old'}],notifications:[{id:'notice-1',read:false}],profile:{id:'peer-1',displayName:'old',relation:{swiped:'none'}},counters:{unreadMessages:7,newLikes:3,newVisitors:1,unreadNotifications:1},failure:false};
@@ -25,7 +25,7 @@ function fixture(){
     return response({ok:true});
    }
    const p=url.pathname;
-   const value=p.endsWith('/me/counters')?server.counters:p.endsWith('/likes/received')?{items:server.received,nextCursor:null}:p.endsWith('/likes/sent')?{items:server.sent,nextCursor:null}:p.endsWith('/visitors')?{items:server.visitors,nextCursor:null}:p.endsWith('/matches')?{items:server.matches,nextCursor:null}:p.endsWith('/notifications')?{items:server.notifications,nextCursor:null}:p.endsWith('/posts')?{items:server.posts,nextCursor:null}:server.profile;
+   const value=p.endsWith('/me')?{id:'self'}:p.endsWith('/messages')?{items:server.chatMessages||[]}:p.endsWith('/me/counters')?server.counters:p.endsWith('/likes/received')?{items:server.received,nextCursor:null}:p.endsWith('/likes/sent')?{items:server.sent,nextCursor:null}:p.endsWith('/visitors')?{items:server.visitors,nextCursor:null}:p.endsWith('/matches')?{items:server.matches,nextCursor:null}:p.endsWith('/notifications')?{items:server.notifications,nextCursor:null}:p.endsWith('/posts')?{items:server.posts,nextCursor:null}:server.profile;
    return response(clone(value));
   };
   const value=run();let promise;
@@ -37,11 +37,13 @@ function fixture(){
   setTimeout:(fn,delay)=>{const id=++timerID;timers.set(id,{fn,delay});return id},clearTimeout:id=>timers.delete(id)};
  vm.runInNewContext(fs.readFileSync(__dirname+'/../ERPStable/site-cache.js','utf8'),context);
  window.__vrcrpSiteCache.session('self',{'X-Content-Mode':'sfw','Accept-Language':'zh'});
+ const nativeMessages=[];
+ if(withNotifications){location.host='erp.sex';window.WebSocket=class extends EventTarget{incoming(value){this.dispatchEvent(new MessageEvent('message',{data:JSON.stringify(value)}));}};window.webkit.messageHandlers.erpNativeNotifications={postMessage:v=>nativeMessages.push(clone(v))};context.MessageEvent=MessageEvent;vm.runInNewContext(fs.readFileSync(__dirname+'/../ERPStable/notifications.js','utf8'),context);}
  const get=url=>window.fetch(url,{headers:{'X-Content-Mode':'sfw','Accept-Language':'zh'}}).then(r=>r.json());
  const observers=[];
  function query(key,url,initial){client.setQueryData(key,initial);const observer=new QueryObserver(client,{queryKey:key,queryFn:async()=>{const value=await get(url);return initial.pages?{pages:[value],pageParams:[null]}:value},staleTime:Infinity});const off=observer.subscribe(()=>{});observers.push(off);return observer;}
  async function run(delay){const selected=[...timers].filter(([,t])=>t.delay===delay);for(const [id,t] of selected)if(timers.delete(id))await t.fn();await tick();}
- return{window,client,server,get,query,requests,timers,document,held,run,tick,hold(v){holdRead=v},age(v){offset=v},destroy(){window.__vrcrpSiteCache.session('');for(const off of observers)off();client.clear();}};
+ return{window,location,nativeMessages,client,server,get,query,requests,timers,document,held,run,tick,hold(v){holdRead=v},age(v){offset=v},destroy(){window.__vrcrpSiteCache.session('');for(const off of observers)off();client.clear();}};
 }
 const likesKey=['m','sfw','zh','likes','received'],sentKey=['m','sfw','zh','likes','sent'];
 const pages=items=>({pages:[{items,nextCursor:null}],pageParams:[null]});
@@ -112,13 +114,18 @@ const pages=items=>({pages:[{items,nextCursor:null}],pageParams:[null]});
  g.hold(false);for(const release of g.held.splice(0))release();await oldWarm;await tick();
  assert.equal(g.client.getQueryData(sentKey),undefined,'previous-account preload leaked');g.destroy();
  // Successful read updates shared counters immediately, preserving unseen chats.
- const r=fixture();const badgeEvents=[];r.window.__vrcrpCountersChanged=v=>badgeEvents.push(clone(v));
+ const r=fixture();const badgeEvents=[],readEvents=[];r.window.__vrcrpCountersChanged=v=>badgeEvents.push(clone(v));r.window.__vrcrpChatRead=v=>readEvents.push(clone(v));
  r.server.matches=[{id:'thread-1',unreadCount:2,lastMessage:{id:'last-read',senderId:'peer',createdAt:'2026-01-01'}}];
  r.query(['m','sfw','zh','matches','active'],'/api/v1/matches',pages(clone(r.server.matches)));
  r.query(['notifications'],'/api/v1/notifications',pages(clone(r.server.notifications)));
  r.client.setQueryData(['counters'],clone(r.server.counters));
  r.hold(true);const oldCounters=r.get('/api/v1/me/counters'),oldList=r.get('/api/v1/matches');await tick();
  await r.window.fetch('/api/v1/matches/thread-1/read',{method:'POST',body:JSON.stringify({lastMessageId:'last-read'})});await tick();
+ assert.equal(readEvents.length,1,'successful read did not notify the shared message layer');
+ assert.equal(readEvents[0].lastMessageId,'last-read');assert.equal(readEvents[0].createdAt,'2026-01-01');assert.equal(readEvents[0].userId,'self');
+ assert(r.window.__vrcrpSiteCache.isMessageRead('thread-1','last-read','2026-01-01'));
+ assert(r.window.__vrcrpSiteCache.isMessageRead('thread-1','older-unlisted','2025-12-31'));
+ assert(!r.window.__vrcrpSiteCache.isMessageRead('thread-1','different-same-time','2026-01-01'),'same-time new message was read');
  assert.equal(r.client.getQueryData(['counters']).unreadMessages,5,'read erased other conversation counts');
  assert.equal(r.client.getQueryData(['m','sfw','zh','matches','active']).pages[0].items[0].unreadCount,0,'chat row remained unread');
  await r.window.fetch('/api/v1/notifications/read',{method:'POST',body:JSON.stringify({ids:['notice-1']})});await tick();
@@ -135,9 +142,29 @@ const pages=items=>({pages:[{items,nextCursor:null}],pageParams:[null]});
  // Repeated acknowledgements and failures do not decrement unrelated reminders.
  await r.window.fetch('/api/v1/notifications/read',{method:'POST',body:JSON.stringify({ids:['notice-1']})});await tick();
  assert.equal(r.client.getQueryData(['counters']).unreadNotifications,0);
+ const readCount=readEvents.length;r.server.failure=true;
+ await r.window.fetch('/api/v1/matches/thread-1/read',{method:'POST',body:JSON.stringify({lastMessageId:'failed-read'})});await tick();
+ assert.equal(readEvents.length,readCount,'failed read cancelled a notification');
+ assert(!r.window.__vrcrpSiteCache.isMessageRead('thread-1','failed-read','2026-01-03'));
+ r.server.failure=false;
  r.server.failure=true;r.client.setQueryData(['counters'],{...r.server.counters,unreadNotifications:3});
  await r.window.fetch('/api/v1/notifications/read',{method:'POST',body:JSON.stringify({all:true})});await tick();
  assert.equal(r.client.getQueryData(['counters']).unreadNotifications,3,'failed read cleared notifications');r.destroy();
+ { // Actual notifications.js + QueryClient + POST read, with late message GETs.
+ const n=fixture(true);await n.get('/api/v1/me');await tick();await n.run(0);
+ const created=new Date().toISOString(),delayed={id:'integrated-delayed',matchId:'integrated-thread',senderId:'peer',type:'text',text:'已经读过',createdAt:created};
+ n.server.chatMessages=[delayed];n.hold(true);const ws=new n.window.WebSocket('wss://erp.sex/api/v1/ws');ws.incoming({type:'message.new',data:delayed});await tick();
+ assert(n.held.length>=2,'message hydration was not delayed');
+ n.client.setQueryData(['m','sfw','zh','matches','messages','integrated-thread'],{items:[delayed]});
+ n.location.pathname='/matches/integrated-thread';
+ await n.window.fetch('/api/v1/matches/integrated-thread/read',{method:'POST',body:JSON.stringify({lastMessageId:delayed.id})});await tick();
+ n.location.pathname='/posts';n.hold(false);for(const release of n.held.splice(0))release();await tick();
+ assert(n.nativeMessages.some(v=>v.kind==='chatRead'&&v.lastMessageId===delayed.id),'real successful read did not reach native bridge');
+ assert(!n.nativeMessages.some(v=>v.kind==='chatMessage'&&v.messageId===delayed.id),'late GET notified after actual successful POST read');
+ const fresh={...delayed,id:'integrated-new',text:'新的消息',createdAt:new Date(Date.parse(created)+1).toISOString()};n.server.chatMessages.push(fresh);ws.incoming({type:'message.new',data:fresh});await tick();
+ assert.equal(n.nativeMessages.filter(v=>v.kind==='chatMessage'&&v.messageId===fresh.id).length,1,'fresh message was lost or duplicated after integrated read');n.destroy();
+ console.log('PASS: integrated real QueryClient + notifications + delayed GET + successful read, with fresh next-message delivery');
+ }
  fs.mkdirSync(path.join(__dirname,'../build'),{recursive:true});fs.writeFileSync(path.join(__dirname,'../build/live-cache-verification.json'),JSON.stringify({queryCore:'5.104.1',checks:['fresh-query-refetch','successful-skip','failed-write','pagination-preserved','content-mode-isolation','stale-read-fence','cancel-sent-like','notification-read','request-coalescing','visible-page-polling','hidden-page-paused','resume-sync','editor-draft-source-preserved','account-isolation','read-ack-shared-counters','late-counter-read-fence','late-list-read-fence','fresh-message-after-read','failed-read-preserves-badge'],passed:true},null,2));
  console.log('PASS: real QueryCore fresh refetch, successful/failed operations, loaded pages, mode isolation, stale-read race, sent-like/read patches, request coalescing, visible polling/resume and account isolation');
 })().catch(error=>{console.error(error);process.exitCode=1});

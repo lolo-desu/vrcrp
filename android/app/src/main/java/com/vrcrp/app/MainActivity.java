@@ -142,6 +142,7 @@ public class MainActivity extends Activity {
                 if(!user.matches("[A-Za-z0-9_-]{1,120}"))user="";
                 prefs().edit().putString("user",user).putString("mode",data.optString("mode","sfw")).putString("language",data.optString("language","zh-Hant")).apply();
                 if(!old.equals(user)){snapshots.evictAll();ChatAlerts.reset(this);stopService(new Intent(this,MessageService.class));}
+                ChatAlerts.activeThread(this,visible&&path.matches("/matches/[A-Za-z0-9_-]{1,120}")?path.substring(9):"");
                 if(!user.isEmpty()){requestNotificationPermission();openPendingChat();}
             } else if("snapshot".equals(kind)) {
                 JSONArray items=data.optJSONArray("items"),baseline=new JSONArray();
@@ -150,7 +151,8 @@ public class MainActivity extends Activity {
                     try{baseline.put(new JSONObject().put("id",item.optString("matchId")).put("messageId",item.optString("messageId")).put("createdAt",item.optString("createdAt")).put("unread",item.optInt("unread")));}catch(JSONException ignored){}
                 }
                 prefs().edit().putString("baseline",baseline.toString()).putString("baselineOwner",prefs().getString("user","")).apply();
-            } else if("chatMessage".equals(kind))ChatAlerts.show(this,data);
+            } else if("chatRead".equals(kind))ChatAlerts.read(this,data);
+            else if("chatMessage".equals(kind))ChatAlerts.show(this,data);
             else if("counters".equals(kind)){ChatAlerts.total=data.optInt("unread",0);prefs().edit().putInt("chatUnread",ChatAlerts.total).apply();}
             return;
         }
@@ -170,7 +172,7 @@ public class MainActivity extends Activity {
                     if(image!=null){restoration.setImageBitmap(image);restoration.setAlpha(1);restoration.setVisibility(View.VISIBLE);final String owner=next;handler.postDelayed(()->{if(entry.equals(owner))hideRestoration();},1600);}
                     entry=next;
                 }
-                pendingTab="";if(path.matches("/matches/[A-Za-z0-9_-]{1,120}"))ChatAlerts.clearThread(this,path.substring(9));
+                pendingTab="";ChatAlerts.activeThread(this,visible&&path.matches("/matches/[A-Za-z0-9_-]{1,120}")?path.substring(9):"");
                 break;
             case "willNavigate":pageReady=false;handler.removeCallbacks(capture);break;
             case "pagePainted": if(entry.equals(data.optString("entryKey"))){pageReady=true;hideRestoration();handler.removeCallbacks(capture);handler.postDelayed(capture,120);}break;
@@ -245,8 +247,8 @@ public class MainActivity extends Activity {
         web.evaluateJavascript("window.__vrcrpAndroidBack?.()===true",value->{if(!"true".equals(value)){if(web.canGoBack())web.goBack();else finish();}});
     }
     @Override public void onBackPressed(){back();}
-    @Override protected void onResume(){super.onResume();visible=true;stopService(new Intent(this,MessageService.class));if(web!=null){web.onResume();js("window.__vrcrpAppActive?.(true)");backgroundState();}ViewCompat.requestApplyInsets(root);}
-    @Override protected void onPause(){visible=false;js("window.__vrcrpAppActive?.(false)");CookieManager.getInstance().flush();super.onPause();}
+    @Override protected void onResume(){super.onResume();visible=true;ChatAlerts.activeThread(this,path.matches("/matches/[A-Za-z0-9_-]{1,120}")?path.substring(9):"");stopService(new Intent(this,MessageService.class));if(web!=null){web.onResume();js("window.__vrcrpAppActive?.(true)");backgroundState();}ViewCompat.requestApplyInsets(root);}
+    @Override protected void onPause(){visible=false;ChatAlerts.activeThread(this,"");js("window.__vrcrpAppActive?.(false)");CookieManager.getInstance().flush();super.onPause();}
     @Override protected void onStop(){super.onStop();if(!isFinishing()&&prefs().getBoolean("background",false)&&!prefs().getString("user","").isEmpty()&&ChatAlerts.allowed(this))ContextCompat.startForegroundService(this,new Intent(this,MessageService.class));}
     @Override public void onRequestPermissionsResult(int code,String[] permissions,int[] results){super.onRequestPermissionsResult(code,permissions,results);if(code==43&&mediaRequest!=null){boolean granted=results.length>0;for(int result:results)granted&=result==PackageManager.PERMISSION_GRANTED;if(granted)mediaRequest.grant(mediaRequest.getResources());else mediaRequest.deny();mediaRequest=null;}}
     @Override protected void onActivityResult(int request,int result,Intent data){super.onActivityResult(request,result,data);if(request==41&&fileCallback!=null){fileCallback.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(result,data));fileCallback=null;}}

@@ -5,9 +5,9 @@ function fixture(origin='https://erp.sex') {
  class Socket extends EventTarget { static OPEN=1; constructor(url){super();this.url=url;this.readyState=1} incoming(value){this.dispatchEvent(new MessageEvent('message',{data:JSON.stringify(value)}))} }
  const document=new EventTarget();document.hidden=false;
  const location={origin,host:new URL(origin).host,href:origin+'/matches',pathname:'/matches'};
- const server={matchPages:{},threadMessagesByMatch:{},detail:{user:{id:'peer',displayName:'测试联系人',avatar:{view:'show',thumbUrl:'https://erp.sex/avatar-test.png'}}},threadMessages:{items:[]},me:{id:'self'},counters:{unreadMessages:3},matches:{items:[{id:'thread',user:{id:'peer',displayName:'测试联系人',avatar:{view:'show',thumbUrl:'https://erp.sex/avatar-test.png'}},unreadCount:3,lastMessage:{id:'old',senderId:'peer',type:'text',text:'old preview',createdAt:'2020-01-01T00:00:00Z'}}]}};
+ const server={heldMessages:[],blockMessages:false,matchPages:{},threadMessagesByMatch:{},detail:{user:{id:'peer',displayName:'测试联系人',avatar:{view:'show',thumbUrl:'https://erp.sex/avatar-test.png'}}},threadMessages:{items:[]},me:{id:'self'},counters:{unreadMessages:3},matches:{items:[{id:'thread',user:{id:'peer',displayName:'测试联系人',avatar:{view:'show',thumbUrl:'https://erp.sex/avatar-test.png'}},unreadCount:3,lastMessage:{id:'old',senderId:'peer',type:'text',text:'old preview',createdAt:'2020-01-01T00:00:00Z'}}]}};
  const window=new EventTarget();window.top=window;window.WebSocket=Socket;window.webkit={messageHandlers:{erpNativeNotifications:{postMessage:v=>messages.push(v)}}};
- window.fetch=(url,options)=>{requests.push([String(url),options]);let body=String(url).includes('/me/counters')?server.counters:/\/matches\/[^/]+\/messages/.test(String(url))?(server.threadMessagesByMatch[String(url).split('/matches/')[1]?.split('/')[0]]||server.threadMessages):/\/matches\/[^/?]+(?:$|\?)/.test(String(url))?server.detail:String(url).includes('/matches')?(server.matchPages[new URL(String(url),location.href).searchParams.get('cursor')]||server.matches):server.me;window.lastPromise=Promise.resolve(new Response(JSON.stringify(body),{status:200}));return window.lastPromise};
+ window.fetch=(url,options)=>{requests.push([String(url),options]);let body=String(url).includes('/me/counters')?server.counters:/\/matches\/[^/]+\/messages/.test(String(url))?(server.threadMessagesByMatch[String(url).split('/matches/')[1]?.split('/')[0]]||server.threadMessages):/\/matches\/[^/?]+(?:$|\?)/.test(String(url))?server.detail:String(url).includes('/matches')?(server.matchPages[new URL(String(url),location.href).searchParams.get('cursor')]||server.matches):server.me;const payload=JSON.stringify(body);window.lastPromise=server.blockMessages&&/\/matches\/[^/]+\/messages/.test(String(url))?new Promise(resolve=>server.heldMessages.push(()=>resolve(new Response(payload,{status:200})))):Promise.resolve(new Response(payload,{status:200}));return window.lastPromise};
  const context={window,document,location,navigator:{onLine:true,language:'zh',userAgent:'fixture'},URL,Request,Response,Headers,MessageEvent,Reflect,Proxy,Number,JSON,Date,Set,Map,Array,Math,AbortController,
  setTimeout:(fn,delay)=>{const id=++timerID;timers.set(id,{fn,delay});return id},clearTimeout:id=>timers.delete(id)};
  vm.runInNewContext(fs.readFileSync(__dirname+'/../ERPStable/notifications.js','utf8'),context);
@@ -67,6 +67,27 @@ function fixture(origin='https://erp.sex') {
  // Account change during hydration cannot reveal the previous user's message.
  const j=fixture();await j.window.fetch('/api/v1/me');await tick();const js=new j.window.WebSocket('wss://erp.sex/api/v1/ws');js.incoming({type:'message.new',data:{id:'late-detail',matchId:'new-thread',senderId:'peer',type:'text',text:'secret'}});
  j.server.me={};await j.window.fetch('/api/v1/me');await tick();await tick();assert(!j.messages.some(m=>m.kind==='chatMessage'),'late hydration leaked after logout');
+ // Read while detail/metadata is in flight, then leave the chat or background.
+ const z=fixture();await z.window.fetch('/api/v1/me');await tick();await z.run(0);
+ const at=new Date().toISOString(),late={id:'read-during-hydration',matchId:'late-thread',senderId:'peer',type:'text',text:'已经看过的消息',createdAt:at};
+ z.server.blockMessages=true;z.server.threadMessagesByMatch['late-thread']={items:[late]};
+ const zs=new z.window.WebSocket('wss://erp.sex/api/v1/ws');zs.incoming({type:'message.new',data:late});await tick();assert.equal(z.server.heldMessages.length,1);
+ z.location.pathname='/matches/late-thread';z.window.__vrcrpChatRead?.({userId:'self',matchId:'late-thread',lastMessageId:late.id,createdAt:at,messageIds:[late.id]});
+ z.location.pathname='/posts';z.window.__vrcrpAppActive(false);z.server.blockMessages=false;for(const release of z.server.heldMessages.splice(0))release();await tick();await tick();
+ assert(!z.messages.some(m=>m.kind==='chatMessage'),'hydration notified a message read before leaving/backgrounding');
+ assert(z.messages.some(m=>m.kind==='chatRead'&&m.lastMessageId===late.id),'read did not reach native notification layer');
+ z.window.__vrcrpAppActive(true);z.server.matches.items=[{id:'late-thread',user:z.server.detail.user,unreadCount:4,lastMessage:late}];z.server.counters.unreadMessages=4;
+ await z.run(0);await tick();await z.run(2200);
+ assert(!z.messages.some(m=>m.kind==='chatMessage'||m.kind==='genericMessage'),'stale summary or counter re-alerted a read message');
+ zs.incoming({type:'message.new',data:{...late,id:'older-read-message',createdAt:new Date(Date.parse(at)-1).toISOString()}});
+ assert(!z.messages.some(m=>m.kind==='chatMessage'),'older read message re-alerted');
+ zs.incoming({type:'message.new',data:{...late,id:'genuine-next',text:'新的未读消息',createdAt:new Date(Date.parse(at)+1).toISOString()}});
+ zs.incoming({type:'message.new',data:{...late,id:'same-time-new',text:'同一时间戳的新消息'}});
+ assert.deepEqual(z.messages.filter(m=>m.kind==='chatMessage').map(m=>m.messageId),['genuine-next','same-time-new'],'read watermark suppressed genuine next messages');
+ z.window.__vrcrpChatRead({userId:'previous-account',matchId:'late-thread',lastMessageId:'unrelated',createdAt:'2099-01-01T00:00:00Z',messageIds:[]});
+ zs.incoming({type:'message.new',data:{...late,id:'after-foreign-read',createdAt:new Date(Date.parse(at)+2).toISOString()}});
+ assert.equal(z.messages.filter(m=>m.kind==='chatMessage').at(-1).messageId,'after-foreign-read','foreign account read affected notifications');
+ console.log('PASS: read during delayed hydration; leave/background cancellation; stale summary/counter; older read; genuine newer/same-time message; foreign read isolation');
  console.log('PASS: summary without ID/body, unread-counter hydration, actual content and sender/avatar, clock skew, new-thread metadata, no premature generic alert, deduplication and logout isolation');
  console.log('PASS: old-message baseline, previews and media, sender/current-chat exclusion, deduplication, live list updates, 2/4/5-second polling, resume, logout/account isolation and original fetch promises');
 })().catch(error=>{console.error(error);process.exitCode=1});

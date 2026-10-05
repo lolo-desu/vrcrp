@@ -3,7 +3,7 @@
   const bridge = window.webkit?.messageHandlers?.erpNativeNotifications;
   if (window !== window.top || location.origin !== 'https://erp.sex' || !bridge) return;
   const originalFetch = window.fetch, OriginalWebSocket = window.WebSocket;
-  const seen = new Set(), matches = new Map();
+  const seen = new Set(), matches = new Map(), reads = new Map();
   const localEvents = new WeakSet(), hydration = new Map();
   let detailRequested = false;
   let userId = '', unread = null, socket = null, active = true, busy = false;
@@ -15,6 +15,25 @@
   function validId(value) { return typeof value === 'string' && /^[\w-]{1,120}$/.test(value); }
   function unwrap(value) { return value?.data ?? value; }
   function remember(id) { seen.add(id); if (seen.size > 512) seen.delete(seen.values().next().value); }
+  function isRead(matchId,messageId,createdAt){
+    if(window.__vrcrpSiteCache?.isMessageRead?.(matchId,messageId,createdAt))return true;
+    const read=reads.get(matchId);if(!read)return false;
+    if(read.ids.has(messageId))return true;
+    const time=Date.parse(createdAt),through=Date.parse(read.createdAt);
+    return Number.isFinite(time)&&Number.isFinite(through)&&time<through;
+  }
+  window.__vrcrpChatRead = value => {
+    if(!userId||value?.userId!==userId||!validId(value.matchId)||!validId(value.lastMessageId))return;
+    const prior=reads.get(value.matchId),ids=new Set(prior?.ids||[]);
+    for(const id of [value.lastMessageId,...(value.messageIds||[])])if(validId(id)){ids.add(id);remember(id);}
+    while(ids.size>512)ids.delete(ids.values().next().value);
+    const createdAt=!prior||Date.parse(value.createdAt)>=Date.parse(prior.createdAt)||!prior.createdAt?value.createdAt:prior.createdAt;
+    reads.set(value.matchId,{ids,createdAt});while(reads.size>256)reads.delete(reads.keys().next().value);
+    const peer=matches.get(value.matchId);
+    if(peer&&(!peer.messageId||isRead(value.matchId,peer.messageId,peer.createdAt)))matches.set(value.matchId,{...peer,unread:0,delta:0,changed:false});
+    clearTimeout(fallbackTimer);detailRequested=false;
+    post({kind:'chatRead',...value});schedule(0);
+  };
   function body(message) {
     if (message.type === 'image') return '[图片]';
     if (message.type === 'voice') return '[语音]';
@@ -29,20 +48,21 @@
     return {title:String(peer?.displayName||'新聊天消息').slice(0,80),displayId:validId(peer?.id)?peer.id:'',avatarURL};
   }
   function message(value, title) {
-    if (!userId || !validId(value?.id) || !validId(value?.matchId) || seen.has(value.id)) return;
+    if (!userId || !validId(value?.id) || !validId(value?.matchId) || seen.has(value.id) || isRead(value.matchId,value.id,value.createdAt)) return;
     remember(value.id);
     if (value.recalled || String(value.senderId) === userId) return;
     lastDetailed = Date.now(); clearTimeout(fallbackTimer);
     detailRequested = false;
     if (active && !document.hidden && location.pathname === '/matches/' + value.matchId) return;
     const peer=matches.get(value.matchId)||{};
-    post({ kind: 'chatMessage', messageId: value.id, matchId: value.matchId, senderId: String(value.senderId ?? ''), title: String(title || peer.title || '新聊天消息').slice(0,80), displayId:peer.displayId || String(value.senderId ?? ''), avatarURL:peer.avatarURL || '', body: body(value) });
+    post({ kind: 'chatMessage', messageId: value.id, matchId: value.matchId, createdAt:String(value.createdAt||''), senderId: String(value.senderId ?? ''), title: String(title || peer.title || '新聊天消息').slice(0,80), displayId:peer.displayId || String(value.senderId ?? ''), avatarURL:peer.avatarURL || '', body: body(value) });
   }
   function counters(value) {
     const count = value?.unreadMessages;
     if (!Number.isSafeInteger(count) || count < 0 || count > 100000) return;
     const increased = unread !== null && count > unread;
     unread = count;window.__vrcrpChatUnread?.(count);post({ kind: 'counters', unread: count });
+    if(count===0){clearTimeout(fallbackTimer);detailRequested=false;}
     window.__vrcrpSiteCache?.commitCounters(value);
     if (increased && Date.now() - lastDetailed > 3000) {
       clearTimeout(fallbackTimer);
@@ -52,20 +72,23 @@
       fallbackTimer = setTimeout(async () => {
         const owner=epoch;
         await Promise.allSettled([...matches].filter(([,peer])=>peer.unread>0).slice(0,8).map(([id])=>hydrate(id)));
-        if(owner===epoch && !busy && detailRequested && Date.now()-lastDetailed>3000)post({kind:'genericMessage',unread});
+        // A counter alone cannot identify an unread message. Retry detail
+        // instead of emitting an unverified notification after a read.
+        if(owner===epoch && detailRequested && unread>0)schedule(600);
       }, 2200);
     }
   }
   window.__vrcrpCountersChanged = value => {
     const count=value?.unreadMessages;if(!Number.isSafeInteger(count)||count<0||count>100000)return;
     unread=count;window.__vrcrpChatUnread?.(count);post({kind:'counters',unread:count});
+    if(count===0){clearTimeout(fallbackTimer);detailRequested=false;}
   };
   function session(value) {
     const id = value?.id == null ? '' : String(value.id);
     if (id === userId) { if (id) postSession(); return; }
     if (userId) socket = null;
     epoch++; controller?.abort();
-    userId = validId(id) ? id : ''; unread = null; window.__vrcrpChatUnread?.(0); seen.clear(); matches.clear(); hydration.clear(); detailRequested=false; sessionStarted = Date.now();
+    userId = validId(id) ? id : ''; unread = null; window.__vrcrpChatUnread?.(0); seen.clear(); matches.clear(); reads.clear(); hydration.clear(); detailRequested=false; sessionStarted = Date.now();
     clearTimeout(fallbackTimer); clearTimeout(pollTimer);
     postSession(); if (userId) schedule(0);
   }
@@ -97,6 +120,7 @@
     hydration.set(id,task);return task;
   }
   function snapshot(value, state = 'active', firstPage = true) {
+    value=window.__vrcrpSiteCache?.reconcileMatches?.(value)||value;
     if (!userId || !Array.isArray(value?.items)) return;
     const summaries = [];
     for (const item of value.items.slice(0,200)) {
@@ -106,7 +130,7 @@
       const hasBaseline=!!prior&&typeof prior.fingerprint==='string'&&Number.isSafeInteger(prior.unread);
       const changed=hasBaseline&&print!==prior.fingerprint;
       const delta=hasBaseline?Math.max(0,(item.unreadCount||0)-(prior.unread||0)):0;
-      matches.set(id,{...info,messageId:latest?.id,fingerprint:print,unread:item.unreadCount||0,delta:Math.max(delta,prior?.delta||0),changed:changed||prior?.changed});
+      matches.set(id,{...info,messageId:latest?.id,createdAt:latest?.createdAt||'',fingerprint:print,unread:item.unreadCount||0,delta:item.unreadCount>0?Math.max(delta,prior?.delta||0):0,changed:item.unreadCount>0&&(changed||prior?.changed)});
       const created=Date.parse(latest?.createdAt);
       const fresh=latest&&item.unreadCount>0&&(changed||delta>0||!hasBaseline&&Number.isFinite(created)&&created>=sessionStarted);
       if(fresh && validId(latest.id) && (latest.type!=='text'||typeof latest.text==='string'))message({...latest,matchId:id});

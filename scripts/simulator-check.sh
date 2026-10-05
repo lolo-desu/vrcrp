@@ -109,6 +109,7 @@ for phase in ['first','reopened']:
 content=json.loads((Path(sys.argv[1])/'notification-content.json').read_text())
 assert content['title']=='测试联系人' and content['subtitle']=='' and content['body']=='测试消息内容',content
 assert content['summaryHydrationAllowed'],content
+assert content['readRaces'] and all(content['readRaces'].values()),content
 assert content['intentAvatar'] and content['intentSender']=='测试联系人',content
 assert content['attachmentCount']==0 and content['avatarWidth']==144 and content['avatarHeight']==144,content
 assert content['path']=='/matches/thread' and content['thread']=='thread' and content['sound'],content

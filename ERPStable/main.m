@@ -735,7 +735,11 @@ static UIView *ERPFocusedView(UIView *view) {
 }
 - (void)userNotificationCenter:(UNUserNotificationCenter *)center willPresentNotification:(UNNotification *)notification
     withCompletionHandler:(void (^)(UNNotificationPresentationOptions))completionHandler {
-    completionHandler(UNNotificationPresentationOptionBanner | UNNotificationPresentationOptionSound | UNNotificationPresentationOptionBadge);
+    dispatch_async(dispatch_get_main_queue(),^{
+        BOOL show=[self.chatNotifications shouldPresentNotificationInfo:notification.request.content.userInfo];
+        completionHandler(show?(UNNotificationPresentationOptionBanner | UNNotificationPresentationOptionSound | UNNotificationPresentationOptionBadge):0);
+        if(!show)[center removeDeliveredNotificationsWithIdentifiers:@[notification.request.identifier]];
+    });
 }
 - (void)userNotificationCenter:(UNUserNotificationCenter *)center didReceiveNotificationResponse:(UNNotificationResponse *)response
     withCompletionHandler:(void (^)(void))completionHandler {
