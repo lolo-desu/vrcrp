@@ -6,8 +6,11 @@ android {
         applicationId 'com.vrcrp.app'
         minSdk 26
         targetSdk 35
-        versionCode 31
-        versionName '0.18'
+        versionCode 32
+        versionName '0.19'
+    }
+    signingConfigs {
+        debug { storeFile file(System.getenv('VRCRP_ANDROID_KEYSTORE') ?: '.signing/debug.keystore') }
     }
     buildTypes {
         release { minifyEnabled false; debuggable false; signingConfig signingConfigs.debug }

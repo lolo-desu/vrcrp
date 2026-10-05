@@ -194,15 +194,27 @@
     patchCounter('unreadNotifications',n=>body?.all===true?0:n-unreadIDs.size);
     patchItems(c,q=>family(q)==='notifications',items=>items.map(item=>notificationReads.has(item.id)?{...item,read:true}:item));
   }
-  function acknowledgeThread(id,lastMessageId){
-    if(!idOK(id)||!idOK(lastMessageId))return;
-    const c=client(),known=[];
+  function knownThreadMessages(c,id){
+    const known=[];
     for(const b of bodies.values())if(b.d.messages&&b.d.id===id)known.push(...(unwrap(b.raw)?.items||[]));
     for(const q of c?.getQueryCache().getAll()||[])if(scoped(q)&&family(q)==='matches'){
       const data=q.state.data,items=data?.pages?.flatMap(p=>p.items||[])||data?.items||[];
       if(q.queryKey.includes(id))known.push(...items);
       for(const item of items)if(item.id===id&&item.lastMessage)known.push(item.lastMessage);
     }
+    return known;
+  }
+  function noteViewedThread(id,lastMessageId){
+    if(!idOK(id)||!idOK(lastMessageId))return;
+    const known=knownThreadMessages(client(),id),stamp=known.find(m=>m.id===lastMessageId)?.createdAt||'',time=Date.parse(stamp);
+    const ids=[lastMessageId,...known.filter(m=>idOK(m.id)&&Number.isFinite(time)&&Date.parse(m.createdAt)<time).map(m=>m.id)];
+    // Notification eligibility follows locally viewed content. Server-owned
+    // counters and list read fences still wait for the successful response.
+    window.__vrcrpChatViewed?.({userId:user,matchId:id,lastMessageId,createdAt:stamp,messageIds:[...new Set(ids)].slice(-256)});
+  }
+  function acknowledgeThread(id,lastMessageId){
+    if(!idOK(id)||!idOK(lastMessageId))return;
+    const c=client(),known=knownThreadMessages(c,id);
     let stamp=known.find(m=>m.id===lastMessageId)?.createdAt||'';
     const prior=threadReads.get(id),ids=new Set(prior?.messageIds||[]),time=Date.parse(stamp);
     ids.add(lastMessageId);
@@ -445,6 +457,8 @@
     } catch {}
     if (!d || args[1]?.cache === 'reload' || signal?.aborted) {
       const owner = epoch, result = Reflect.apply(network,this,args);
+      if(plan?.path[0]==='matches'&&plan.path[2]==='read'&&method==='POST'&&!signal?.aborted)
+        bodyPromise.then(body=>{if(owner===epoch)noteViewedThread(plan.path[1],body?.lastMessageId);}).catch(()=>{});
       if(plan)result.then(response=>{if(response.ok&&owner===epoch)bodyPromise.then(body=>{if(owner===epoch)mutationSucceeded(plan,body);}).catch(()=>{});}).catch(()=>{});
       if (mutation) result.then(response => { if (response.ok) response.clone().json().then(raw => { if (owner === epoch) serverEvent('message.new',{...unwrap(raw),matchId:mutation}); }).catch(() => {}); }).catch(() => {});
       if(method==='GET'&&requestURL?.origin===location.origin&&requestURL.pathname==='/api/v1/me/counters'){

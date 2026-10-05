@@ -29,7 +29,7 @@ function fixture(withNotifications=false){
    return response(clone(value));
   };
   const value=run();let promise;
-  if(method==='GET'&&holdRead){promise=new Promise(resolve=>held.push(()=>resolve(value)));}else promise=Promise.resolve(value);
+  if(method!=='GET'&&server.blockReadResponse&&url.pathname.endsWith('/read')){promise=new Promise(resolve=>(server.heldReadResponses||=[]).push(()=>resolve(value)));}else if(method==='GET'&&holdRead){promise=new Promise(resolve=>held.push(()=>resolve(value)));}else promise=Promise.resolve(value);
   window.lastNetworkPromise=promise;return promise;
  };
  class Clock extends Date{static now(){return Date.now()+offset;}}
@@ -157,10 +157,13 @@ const pages=items=>({pages:[{items,nextCursor:null}],pageParams:[null]});
  assert(n.held.length>=2,'message hydration was not delayed');
  n.client.setQueryData(['m','sfw','zh','matches','messages','integrated-thread'],{items:[delayed]});
  n.location.pathname='/matches/integrated-thread';
- await n.window.fetch('/api/v1/matches/integrated-thread/read',{method:'POST',body:JSON.stringify({lastMessageId:delayed.id})});await tick();
+ n.server.blockReadResponse=true;const ackPending=n.window.fetch('/api/v1/matches/integrated-thread/read',{method:'POST',body:JSON.stringify({lastMessageId:delayed.id})});await tick();
+ assert(!n.window.__vrcrpSiteCache.isMessageRead('integrated-thread',delayed.id,created),'unconfirmed read changed server-owned read fence');
  n.location.pathname='/posts';n.hold(false);for(const release of n.held.splice(0))release();await tick();
- assert(n.nativeMessages.some(v=>v.kind==='chatRead'&&v.lastMessageId===delayed.id),'real successful read did not reach native bridge');
- assert(!n.nativeMessages.some(v=>v.kind==='chatMessage'&&v.messageId===delayed.id),'late GET notified after actual successful POST read');
+ assert(!n.nativeMessages.some(v=>v.kind==='chatMessage'&&v.messageId===delayed.id),'late GET notified while read acknowledgement was still pending');
+ assert(n.nativeMessages.some(v=>v.kind==='chatRead'&&v.lastMessageId===delayed.id),'locally viewed notification waited for server acknowledgement');
+ for(const release of n.server.heldReadResponses.splice(0))release();await ackPending;await tick();n.server.blockReadResponse=false;
+ assert(n.window.__vrcrpSiteCache.isMessageRead('integrated-thread',delayed.id,created),'confirmed read was lost');
  const fresh={...delayed,id:'integrated-new',text:'新的消息',createdAt:new Date(Date.parse(created)+1).toISOString()};n.server.chatMessages.push(fresh);ws.incoming({type:'message.new',data:fresh});await tick();
  assert.equal(n.nativeMessages.filter(v=>v.kind==='chatMessage'&&v.messageId===fresh.id).length,1,'fresh message was lost or duplicated after integrated read');n.destroy();
  console.log('PASS: integrated real QueryClient + notifications + delayed GET + successful read, with fresh next-message delivery');

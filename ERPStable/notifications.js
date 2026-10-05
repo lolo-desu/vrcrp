@@ -34,6 +34,7 @@
     clearTimeout(fallbackTimer);detailRequested=false;
     post({kind:'chatRead',...value});schedule(0);
   };
+  window.__vrcrpChatViewed = window.__vrcrpChatRead;
   function body(message) {
     if (message.type === 'image') return '[图片]';
     if (message.type === 'voice') return '[语音]';

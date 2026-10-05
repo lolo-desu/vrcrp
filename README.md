@@ -34,7 +34,7 @@ Android 需 JDK 17+、Android SDK 35，设置 `ANDROID_HOME` 后运行：
 bash scripts/build-android.sh
 ```
 
-产物为 `build/vrcrp-android.apk`。APK 使用开发签名；Actions 缓存签名文件以支持后续覆盖安装，正式发行可在 Gradle 中配置自己的签名。两种平台均可通过仓库 Actions 构建。
+产物为 `build/vrcrp-android.apk`。APK 使用开发签名；Actions 缓存签名文件，但缓存过期时签名可能变化。正式发行建议在 Gradle 中配置固定签名。两种平台均可通过仓库 Actions 构建。
 
 ## 贡献
 
