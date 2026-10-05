@@ -19,6 +19,7 @@ with sync_playwright() as p:
    for preset,scheme in [('pop','light'),('pop','dark'),('clean','light')]:
     page=browser.new_page(viewport={'width':width,'height':793},is_mobile=True,has_touch=True)
     errors=[];page.on('pageerror',lambda e:errors.append(str(e)))
+    page.add_init_script('window.webkit={messageHandlers:{erpNativeApp:{postMessage(){}}}}')
     page.add_init_script((root/'ERPStable/page-templates.js').read_text())
     page.route('https://erp.sex/**',lambda r:r.fulfill(body=f'<html lang="zh-Hant" data-preset="{preset}" data-scheme="{scheme}"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>{css}body{{margin:0}}#wait{{position:fixed;inset:0;pointer-events:none}}.vr-page-block{{background:rgb(var(--fg)/.10)}}</style></head><body><div class="flex h-dvh flex-col"><header class="app-top sticky top-0 border-b border-border bg-surface"><div class="mx-auto flex h-14 items-center gap-1.5 px-2.5"><span>vrcrp</span><button class="ml-auto h-9 w-9"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="7"/></svg></button></div></header><main id="main" class="mx-auto flex min-h-0 w-full max-w-2xl flex-1 flex-col px-3 pt-5"></main></div><script>window.__vrcrpPaintState=()=>({{ready:true}});</script></body></html>',content_type='text/html'))
     page.goto('https://erp.sex/matches')

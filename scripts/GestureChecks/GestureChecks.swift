@@ -85,6 +85,24 @@ final class GestureChecks: XCTestCase {
         let photo=app.buttons["资料照片"]
         assertLivePhotoScroll(photo)
     }
+    func testMemoryPressureDoesNotCancelInteractiveReturn() {
+        app.buttons["返回内存测试"].tap()
+        backFromPhoto()
+        openProfile();backFromPhoto()
+        XCTAssertTrue(app.links["打开资料"].isHittable,"Memory pressure left a frozen return cover")
+    }
+    func testWebContentRecoveryRestoresUsablePage() {
+        app.buttons["页面恢复测试"].tap()
+        let recovering=app.staticTexts["正在恢复页面…"]
+        XCTAssertTrue(recovering.waitForExistence(timeout:4))
+        XCTAssertTrue(app.staticTexts["资料已就绪"].waitForExistence(timeout:12))
+        let retry=app.buttons["重新连接"]
+        let photo=app.buttons["资料照片"]
+        expectation(for:NSPredicate { _,_ in photo.exists && photo.isHittable && !retry.exists && !recovering.exists },evaluatedWith:photo)
+        waitForExpectations(timeout:12)
+        assertLivePhotoScroll(photo)
+        backFromPhoto()
+    }
     func openLikeSheet() {
         let list=app.links["喜欢列表"]
         if list.exists { list.tap() }

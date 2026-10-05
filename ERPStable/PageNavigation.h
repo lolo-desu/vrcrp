@@ -23,6 +23,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)painted:(NSString *)key;
 - (void)capture;
 - (void)cancelCapture;
+- (nullable UIImage *)recoverySurface;
+- (void)trimMemory;
 - (void)layout;
 - (BOOL)beginInteractive;
 - (BOOL)beginOverlayInteractive;

@@ -1,4 +1,4 @@
-name: Build vrcrp iOS and Android
+name: Build vrcrp
 on:
   push:
     branches: [main, vrcrp-web-ios]
@@ -11,9 +11,24 @@ on:
 permissions:
   contents: read
 jobs:
+  targets:
+    runs-on: ubuntu-latest
+    outputs:
+      android: ${{ steps.platforms.outputs.android }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: platforms
+        run: |
+          python3 - <<'PY'
+          import json, os
+          targets=json.load(open('.github/release-platforms.json'))
+          assert targets['ios'] is True and isinstance(targets['android'],bool)
+          with open(os.environ['GITHUB_OUTPUT'],'a') as output:
+              print('android='+str(targets['android']).lower(),file=output)
+          PY
   build:
     runs-on: macos-26
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - name: Check notification previews and live refresh
@@ -96,6 +111,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
   android:
+    needs: targets
+    if: needs.targets.outputs.android == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -155,6 +172,9 @@ jobs:
           python3 scripts/test-keyboard-layout.py
           python3 scripts/fetch-upstream-ui.py --snapshot scripts/fixtures/upstream-20261005.zip
           python3 scripts/test-upstream-ui.py
+          python3 scripts/test-ios-performance.py
+          python3 scripts/test-navigation-recovery.py
+          ORIGINAL_SITE_CSS="$PWD/build/upstream/$(python3 -c "import json; print(json.load(open('build/upstream/manifest.json'))['css'])")" python3 scripts/test-page-templates.py
           ORIGINAL_SITE_CSS="$PWD/build/upstream/$(python3 -c "import json; print(json.load(open('build/upstream/manifest.json'))['css'])")" python3 scripts/test-app-theme.py
           ORIGINAL_SITE_CSS="$PWD/build/upstream/$(python3 -c "import json; print(json.load(open('build/upstream/manifest.json'))['css'])")" python3 scripts/test-placeholders.py
       - uses: actions/upload-artifact@v4
@@ -167,9 +187,15 @@ jobs:
             build/upstream-ui-verification.json
             build/app-theme-verification.json
             build/placeholder-verification.json
+            build/ios-performance-verification.json
+            build/navigation-recovery.json
+            build/page-template-verification.json
   release:
-    if: github.repository != 'lolo-desu/Action-Build' && github.ref == 'refs/heads/main'
-    needs: [build, android, shared-ui]
+    if: >-
+      always() && github.repository != 'lolo-desu/Action-Build' && github.ref == 'refs/heads/main' &&
+      needs.build.result == 'success' && needs.shared-ui.result == 'success' &&
+      (needs.android.result == 'success' || (needs.targets.outputs.android == 'false' && needs.android.result == 'skipped'))
+    needs: [targets, build, android, shared-ui]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -180,21 +206,27 @@ jobs:
           name: vrcrp-web-unsigned
           path: release-build
       - uses: actions/download-artifact@v4
+        if: needs.targets.outputs.android == 'true'
         with:
           name: vrcrp-android
           path: android-build
-      - name: Publish verified IPA and APK
+      - name: Publish verified release
         env:
           GH_TOKEN: ${{ github.token }}
+          BUILD_ANDROID: ${{ needs.targets.outputs.android }}
         run: |
           VERSION=$(python3 -c "import plistlib; print(plistlib.load(open('ERPStable/Info.plist','rb'))['CFBundleShortVersionString'])")
           cp release-build/ERPStable-unsigned.ipa "vrcrp-v${VERSION}-unsigned.ipa"
-          cp android-build/build/vrcrp-android.apk "vrcrp-v${VERSION}-android.apk"
-          sha256sum "vrcrp-v${VERSION}-unsigned.ipa" "vrcrp-v${VERSION}-android.apk" > SHA256.txt
+          ASSETS=("vrcrp-v${VERSION}-unsigned.ipa")
+          if test "$BUILD_ANDROID" = true; then
+            cp android-build/build/vrcrp-android.apk "vrcrp-v${VERSION}-android.apk"
+            ASSETS+=("vrcrp-v${VERSION}-android.apk")
+          fi
+          sha256sum "${ASSETS[@]}" > SHA256.txt
           if gh release view "v${VERSION}" >/dev/null 2>&1; then
             echo "Version v${VERSION} already published; increment the version before publishing again."
             exit 1
           fi
           gh release create "v${VERSION}" --target "$GITHUB_SHA" --title "vrcrp ${VERSION}" \
-            --notes-file RELEASE_NOTES.md --draft "vrcrp-v${VERSION}-unsigned.ipa" "vrcrp-v${VERSION}-android.apk" SHA256.txt
+            --notes-file RELEASE_NOTES.md --draft "${ASSETS[@]}" SHA256.txt
           gh release edit "v${VERSION}" --draft=false

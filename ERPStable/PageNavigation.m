@@ -42,6 +42,9 @@
 @property(nonatomic) BOOL foregroundPreview;
 @property(nonatomic) NSUInteger generation;
 @property(nonatomic) NSUInteger captureGeneration;
+@property(nonatomic) NSUInteger captureRequest;
+@property(nonatomic) BOOL captureInFlight;
+@property(nonatomic) BOOL captureAgain;
 @property(nonatomic,strong) UIColor *fromHeader;
 @property(nonatomic,strong) UIColor *toHeader;
 @property(nonatomic,strong) NSMutableDictionary<NSString *,NSDictionary *> *placeholderLayouts;
@@ -224,15 +227,39 @@
         }
     }];
 }
-- (void)cancelCapture { self.captureGeneration++; }
+- (UIImage *)recoverySurface {
+    if(self.web.bounds.size.width<1||self.web.bounds.size.height<1)return nil;
+    return (self.handoff?self.handoffView.image:nil)?:[self pageForKey:self.currentKey].image?:[self placeholderForPath:self.currentPath];
+}
+- (void)trimMemory {
+    [self cancelCapture];
+    [self.images removeAllObjects];
+    // Releasing optional previews must not finish a drag, remove its cover or
+    // discard the actual return stack. Keep just the two nearest live surfaces.
+    for(NSString *key in self.retainedPages.allKeys)
+        if(![key isEqual:self.currentKey]&&![key isEqual:self.parentKey])[self.retainedPages removeObjectForKey:key];
+    for(NSString *path in self.paths.allKeys)
+        if(!self.retainedPages[self.paths[path]])[self.paths removeObjectForKey:path];
+}
+- (void)cancelCapture { self.captureGeneration++;self.captureAgain=NO; }
+- (void)finishCaptureRequest:(NSUInteger)request {
+    if(request!=self.captureRequest)return;
+    self.captureInFlight=NO;
+    BOOL again=self.captureAgain;self.captureAgain=NO;
+    if(again)dispatch_after(dispatch_time(DISPATCH_TIME_NOW,100*NSEC_PER_MSEC),dispatch_get_main_queue(),^{[self capture];});
+}
 - (void)capture {
     if(self.captureAllowed&&!self.captureAllowed())return;
     if(!self.currentKey.length||!self.routeReady||self.transitioning||self.handoff||self.web.alpha<.99)return;
+    if(self.captureInFlight){self.captureAgain=YES;return;}
     NSString *key=self.currentKey,*path=self.currentPath;NSUInteger generation=++self.captureGeneration;
     CGRect viewport=[self viewport];if(viewport.size.width<100||viewport.size.height<100)return;
+    self.captureInFlight=YES;NSUInteger request=++self.captureRequest;
     WKSnapshotConfiguration *config=[WKSnapshotConfiguration new];config.afterScreenUpdates=YES;
     [self.web takeSnapshotWithConfiguration:config completionHandler:^(UIImage *image,NSError *error){
-        if(!image||[self blankImage:image]||generation!=self.captureGeneration||![self.currentKey isEqual:key]||self.transitioning||self.handoff)return;
+        if(request!=self.captureRequest)return;
+        [self finishCaptureRequest:request];
+        if(!image||[self blankImage:image]||generation!=self.captureGeneration||![self.currentKey isEqual:key]||self.transitioning||self.handoff||(self.captureAllowed&&!self.captureAllowed()))return;
         UIGraphicsImageRendererFormat *format=[UIGraphicsImageRendererFormat preferredFormat];format.scale=MIN(1.5,UIScreen.mainScreen.scale);format.opaque=YES;format.preferredRange=UIGraphicsImageRendererFormatRangeStandard;
         UIGraphicsImageRenderer *renderer=[[UIGraphicsImageRenderer alloc] initWithSize:viewport.size format:format];
         UIImage *composite=[renderer imageWithActions:^(UIGraphicsImageRendererContext *context){
@@ -251,6 +278,11 @@
         [self trimRetainedPages];
         if(self.paths.count>20){for(NSString *p in self.paths.allKeys)if(![self.images objectForKey:self.paths[p]])[self.paths removeObjectForKey:p];}
     }];
+    // A dropped cache snapshot must not suppress all later captures. Navigation
+    // handoff has its own independent, shorter compositor deadline.
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,NSEC_PER_SEC),dispatch_get_main_queue(),^{
+        if(request==self.captureRequest&&self.captureInFlight){self.captureGeneration++;[self finishCaptureRequest:request];self.captureRequest++;}
+    });
 }
 - (void)setRunning:(BOOL)value {
     // Animation is presentation, never a lock on the router or its controls.

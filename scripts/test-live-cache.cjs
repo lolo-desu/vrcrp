@@ -51,6 +51,23 @@ function fixture(withNotifications=false){
 const likesKey=['m','sfw','zh','likes','received'],sentKey=['m','sfw','zh','likes','sent'];
 const pages=items=>({pages:[{items,nextCursor:null}],pageParams:[null]});
 (async()=>{
+ { // iOS memory warnings release duplicate HTTP bodies, not live subscriptions.
+ const m=fixture(),key=['m','sfw','zh','matches','active','',''];
+ m.server.matches=[{id:'thread-1',unreadCount:2,lastMessage:{id:'memory-read',senderId:'peer-1',createdAt:'2026-10-05'}}];
+ m.query(key,'/api/v1/matches',pages(clone(m.server.matches)));
+ await m.get('/api/v1/matches');await tick();
+ await m.window.fetch('/api/v1/matches/thread-1/read',{method:'POST',body:JSON.stringify({lastMessageId:'memory-read'})});await tick();
+ const revision=m.window.__vrcrpSiteCache.readVersion();
+ m.window.__vrcrpSiteCache.trimMemory();
+ assert.equal(m.window.__vrcrpSiteCache.account(),'self');
+ assert.equal(m.window.__vrcrpSiteCache.readVersion(),revision,'memory trim discarded read acknowledgments');
+ assert.equal(m.client.getQueryData(key).pages[0].items[0].unreadCount,0);
+ m.window.__vrcrpSiteCache.commitMatches({items:[{id:'thread-1',unreadCount:1,lastMessage:{id:'after-memory',createdAt:'2026-10-06'}}]});
+ assert.equal(m.client.getQueryData(key).pages[0].items[0].unreadCount,1,'live cache detached after memory trim');
+ m.server.matches[0].pinned=true;await m.window.__vrcrpSiteCache.refreshPage();await tick();
+ assert.equal(m.client.getQueryData(key).pages[0].items[0].pinned,true,'refresh stopped after memory trim');
+ m.destroy();console.log('PASS: iOS memory trim preserves account, read acknowledgments, live QueryClient and active refresh');
+ }
  const f=fixture();const observer=f.query(likesKey,'/api/v1/likes/received',pages(clone(f.server.received)));
  await f.get('/api/v1/likes/received');await tick();
  // A query's explicit refetch must receive a fresh result, not a warm HTTP body.
@@ -202,6 +219,6 @@ const pages=items=>({pages:[{items,nextCursor:null}],pageParams:[null]});
  const hotKey=['m','sfw','zh','browse','hot',{}];v.server.browse=[{id:'server-first',likes:1},{id:'server-second',likes:999}];const ranking=v.query(hotKey,'/api/v1/browse?sort=hot',pages([]));await ranking.refetch();assert.deepEqual(v.client.getQueryData(hotKey).pages[0].items.map(i=>i.id),['server-first','server-second'],'client replaced official ranking');v.server.browse.reverse();await ranking.refetch();assert.deepEqual(v.client.getQueryData(hotKey).pages[0].items.map(i=>i.id),['server-second','server-first'],'ranking refetch returned stale cache');
  v.destroy();console.log('PASS: October list keys, groups/search/cursor isolation, server pin success/failure, secret upgrade/cancel relations, official ranking order and fresh results');
  }
- fs.mkdirSync(path.join(__dirname,'../build'),{recursive:true});fs.writeFileSync(path.join(__dirname,'../build/live-cache-verification.json'),JSON.stringify({queryCore:'5.104.1',checks:['fresh-query-refetch','successful-skip','failed-write','pagination-preserved','content-mode-isolation','stale-read-fence','cancel-sent-like','notification-read','request-coalescing','visible-page-polling','hidden-page-paused','resume-sync','editor-draft-source-preserved','account-isolation','read-ack-shared-counters','late-counter-read-fence','late-list-read-fence','fresh-message-after-read','failed-read-preserves-badge','october-seven-part-match-keys','filtered-list-membership-and-cursor','server-pin-failure-and-success','group-move-removes-old-row','secret-upgrade-and-cancel','official-ranking-order-and-refetch'],passed:true},null,2));
+ fs.mkdirSync(path.join(__dirname,'../build'),{recursive:true});fs.writeFileSync(path.join(__dirname,'../build/live-cache-verification.json'),JSON.stringify({queryCore:'5.104.1',checks:['ios-memory-trim-keeps-live-cache','fresh-query-refetch','successful-skip','failed-write','pagination-preserved','content-mode-isolation','stale-read-fence','cancel-sent-like','notification-read','request-coalescing','visible-page-polling','hidden-page-paused','resume-sync','editor-draft-source-preserved','account-isolation','read-ack-shared-counters','late-counter-read-fence','late-list-read-fence','fresh-message-after-read','failed-read-preserves-badge','october-seven-part-match-keys','filtered-list-membership-and-cursor','server-pin-failure-and-success','group-move-removes-old-row','secret-upgrade-and-cancel','official-ranking-order-and-refetch'],passed:true},null,2));
  console.log('PASS: real QueryCore fresh refetch, successful/failed operations, loaded pages, mode isolation, stale-read race, sent-like/read patches, request coalescing, visible polling/resume and account isolation');
 })().catch(error=>{console.error(error);process.exitCode=1});

@@ -312,6 +312,18 @@
   let direction = 'none', pendingRestore = null, settleGeneration = 0;
   let backQueue=0,backInFlight=false,backTimer=null,forwardIntent=null;
   let baseIndex = Number.isInteger(history.state?.idx) ? history.state.idx : 0;
+  const iosHistory=!!window.webkit?.messageHandlers?.erpNativeApp&&window.__vrcrpPlatform!=='android';
+  const trailState=(paths,keys,at,base)=>{const start=Math.max(0,at-32),end=Math.min(paths.length,start+64);return {version:1,paths:paths.slice(start,end),keys:keys.slice(start,end),index:at-start,base:base+start};};
+  const savedTrail=history.state?.vrcrpTrail;
+  if(iosHistory&&savedTrail?.version===1&&Array.isArray(savedTrail.paths)&&Array.isArray(savedTrail.keys)&&
+     savedTrail.paths.length<=64&&savedTrail.paths.length===savedTrail.keys.length&&
+     savedTrail.paths.every(p=>typeof p==='string'&&p.startsWith('/')&&p.length<=2048)&&
+     savedTrail.keys.every(k=>typeof k==='string'&&k.length<=180)&&
+     Number.isInteger(savedTrail.index)&&savedTrail.index>=0&&savedTrail.index<savedTrail.paths.length&&
+     Number.isInteger(savedTrail.base)&&savedTrail.base+savedTrail.index===history.state?.idx&&
+     savedTrail.paths[savedTrail.index]===location.pathname+location.search){
+    entries=savedTrail.paths.slice();entryKeys=savedTrail.keys.slice();index=savedTrail.index;baseIndex=savedTrail.base;
+  }
   const entryKey = () => String(entryKeys[index] || 'vr-' + index);
   window.__vrcrpEntryKey=entryKey;
   let placeholder=null, presentation=null, departedMain=null, departedNodes=[], departedText='', domVersion=0, paintMemo=null;
@@ -767,8 +779,8 @@
   if(chatPath(location.pathname)&&index===0){
     const path=location.pathname+location.search,state=history.state||{},idx=Number.isInteger(state.idx)?state.idx:baseIndex;
     const parent={usr:null,key:'vr-matches-'+Math.random().toString(36).slice(2),idx};
-    replaceEntry(parent,'','/matches');pushEntry({...state,key:state.key||entryKey(),idx:idx+1},'',path);
-    entries=['/matches',path];entryKeys=[parent.key,history.state.key];index=1;baseIndex=idx;
+    const key=state.key||entryKey();entries=['/matches',path];entryKeys=[parent.key,key];index=1;baseIndex=idx;
+    replaceEntry(parent,'','/matches');pushEntry({...state,key,idx:idx+1,...(iosHistory?{vrcrpTrail:trailState(entries,entryKeys,index,baseIndex)}:{})},'',path);
   }
   const editorPath=path=>/^\/profile\/edit(?:\/|$)/.test(path);
   for (const method of ['pushState', 'replaceState']) {
@@ -795,9 +807,20 @@
         args[0]={...(args[0]||{}),idx:(history.state?.idx??baseIndex+index)+1};
       }
       if((sibling||chatSibling)&&args[0]&&typeof args[0]==='object')args[0]={...args[0],idx:history.state?.idx??baseIndex+index};
+      const pushes=enteringChat||method==='pushState'&&!sibling&&!chatSibling;
+      const nextEntryKey=args[0]?.key||(pushes?'vr-'+Math.random().toString(36).slice(2):entryKeys[index]);
+      if(iosHistory&&(args[0]===null||typeof args[0]==='object')){
+        const url=new URL(args[2]||location.href,location.href),path=url.pathname+url.search;
+        const paths=pushes?entries.slice(0,index+1).concat(path):entries.map((p,i)=>i===index?path:p);
+        const keys=pushes?entryKeys.slice(0,index+1).concat(nextEntryKey):entryKeys.map((k,i)=>i===index?String(nextEntryKey):k);
+        const base=!pushes&&index===0&&Number.isInteger(args[0]?.idx)?args[0].idx:baseIndex;
+        // Add data-free route metadata to the existing write. An extra
+        // replaceState on every route hits Safari's write-frequency limit.
+        args[0]={...args[0],vrcrpTrail:trailState(paths,keys,pushes?index+1:index,base)};
+      }
       const result = sibling||chatSibling?replaceEntry(...args):enteringChat?pushEntry(...args):Reflect.apply(original, this, args);
       const path = location.pathname + location.search;
-      if (enteringChat||method === 'pushState'&&!sibling&&!chatSibling) { entries.splice(index + 1);entryKeys.splice(index+1); entries.push(path);entryKeys.push(history.state?.key || 'vr-'+Math.random().toString(36).slice(2)); index++; }
+      if (enteringChat||method === 'pushState'&&!sibling&&!chatSibling) { entries.splice(index + 1);entryKeys.splice(index+1); entries.push(path);entryKeys.push(history.state?.key || nextEntryKey); index++; }
       else { entries[index] = path;entryKeys[index]=history.state?.key || entryKeys[index]; if (index === 0 && Number.isInteger(history.state?.idx)) baseIndex = history.state.idx; }
       if(changed)pendingRestore=sibling?null:views.get(entryKey()) || pathViews.get(location.pathname) || null;
       // Tell UIKit the new history key before waiting for a paint frame.
@@ -860,5 +883,6 @@
   window.addEventListener('scroll',snapshotSoon,{passive:true,capture:true});
   new MutationObserver(records=>{if(records.some(r=>r.target.closest?.('#main') && (r.type!=='attributes' || r.attributeName==='aria-current')))snapshotSoon();}).observe(document,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['aria-current']});
   document.addEventListener('focusin', schedule);
+  if(iosHistory&&!history.state?.vrcrpTrail)replaceEntry({...history.state,vrcrpTrail:trailState(entries,entryKeys,index,baseIndex)},'',location.href);
   routePending = true; schedule();
 })();

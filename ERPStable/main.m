@@ -133,6 +133,10 @@ static UIView *ERPFocusedView(UIView *view) {
 @property(nonatomic, copy) NSString *sessionContext;
 @property(nonatomic, strong) NSURL *pendingURL;
 @property(nonatomic) BOOL hasContent;
+@property(nonatomic) BOOL recoveringContent;
+@property(nonatomic) NSUInteger loadingGeneration;
+@property(nonatomic, strong) UIImageView *recoveryImage;
+@property(nonatomic, strong) UIStackView *loadingPanel;
 @property(nonatomic) BOOL canGoBack;
 @property(nonatomic) BOOL websiteOverlay;
 @property(nonatomic) BOOL chatLayout;
@@ -142,6 +146,7 @@ static UIView *ERPFocusedView(UIView *view) {
 @property(nonatomic) NSUInteger snapshotGeneration;
 @property(nonatomic) NSUInteger keyboardResizeGeneration;
 #if ERP_TESTING
+@property(nonatomic) BOOL verifyTrimDuringBack;
 @property(nonatomic) NSTimeInterval verifyNavigationStarted;
 @property(nonatomic) BOOL verifyGestureBegan;
 @property(nonatomic) BOOL verifyColdEntryArmed;
@@ -331,16 +336,20 @@ static UIView *ERPFocusedView(UIView *view) {
     self.retryButton=[UIButton buttonWithType:UIButtonTypeSystem]; [self.retryButton setTitle:@"重新连接" forState:UIControlStateNormal]; self.retryButton.hidden=YES;
     [self.retryButton addTarget:self action:@selector(retryPage:) forControlEvents:UIControlEventTouchUpInside];
     UIStackView *stack=[[UIStackView alloc] initWithArrangedSubviews:@[icon,title,self.loadingCaption,self.spinner,self.retryButton]];
+    self.loadingPanel=stack;
     stack.axis=UILayoutConstraintAxisVertical; stack.alignment=UIStackViewAlignmentCenter; stack.spacing=14;
     stack.translatesAutoresizingMaskIntoConstraints=NO; [self.loadingCover addSubview:stack];
     [NSLayoutConstraint activateConstraints:@[[stack.centerXAnchor constraintEqualToAnchor:self.loadingCover.centerXAnchor],
         [stack.centerYAnchor constraintEqualToAnchor:self.loadingCover.centerYAnchor], [stack.widthAnchor constraintLessThanOrEqualToAnchor:self.loadingCover.widthAnchor multiplier:.8]]];
 }
 - (void)contentReady {
+    if(self.recoveringContent)return;
     self.hasContent=YES;  [self.spinner stopAnimating];
+    [self restoreNavigation];[self updateBackAvailability];
     if (self.loadingCover.hidden) return;
+    NSUInteger owner=++self.loadingGeneration;
     [UIView animateWithDuration:UIAccessibilityIsReduceMotionEnabled()?0:.22 animations:^{ self.loadingCover.alpha=0; }
-        completion:^(BOOL finished) { self.loadingCover.hidden=YES; }];
+        completion:^(BOOL finished) { if(owner!=self.loadingGeneration)return;self.loadingCover.hidden=YES;[self.recoveryImage removeFromSuperview];self.recoveryImage=nil;self.loadingPanel.backgroundColor=UIColor.clearColor; }];
 }
 - (void)createRefreshHint {
     self.refreshSurface=[UIView new];self.refreshSurface.userInteractionEnabled=NO;self.refreshSurface.clipsToBounds=YES;self.refreshSurface.hidden=YES;[self.view addSubview:self.refreshSurface];
@@ -409,7 +418,7 @@ static UIView *ERPFocusedView(UIView *view) {
     });
 }
 - (void)restoreNavigation {
-    self.bottomNav.hidden=!(self.navModelVisible&&self.routeShowsTabs&&!self.keyboardVisible&&!self.websiteOverlay&&!self.pageNavigation.transitioning);
+    self.bottomNav.hidden=!(self.navModelVisible&&self.routeShowsTabs&&!self.keyboardVisible&&!self.websiteOverlay&&!self.pageNavigation.transitioning&&!self.recoveringContent);
     if(!self.pageNavigation.transitioning)[self.bottomNav layoutForWebFrame:self.web.frame];
     if(!self.bottomNav.hidden)[self.view bringSubviewToFront:self.bottomNav];
 }
@@ -421,13 +430,13 @@ static UIView *ERPFocusedView(UIView *view) {
     self.refreshHint.backgroundColor=color;self.refreshSurface.backgroundColor=color;self.refreshHint.layer.borderColor=ink.CGColor;self.refreshLabel.textColor=ink;self.refreshSpinner.color=ink;
 }
 - (void)didReceiveMemoryWarning {
-    [super didReceiveMemoryWarning];[self.pageNavigation clear];
-    [self.web evaluateJavaScript:@"window.__vrcrpSiteCache?.clear()" completionHandler:nil];
+    [super didReceiveMemoryWarning];self.snapshotGeneration++;[self.pageNavigation trimMemory];
+    [self.web evaluateJavaScript:@"window.__vrcrpSiteCache?.trimMemory()" completionHandler:nil];
 }
 - (void)updateBackAvailability {
     // Focus/keyboard notifications must not cancel an active back recognizer.
     if(self.edgeBack.state!=UIGestureRecognizerStateBegan&&self.edgeBack.state!=UIGestureRecognizerStateChanged)
-        self.edgeBack.enabled=(self.canGoBack||self.profileOverlay)&&(!self.websiteOverlay||self.profileOverlay);
+        self.edgeBack.enabled=(self.canGoBack||self.profileOverlay)&&(!self.websiteOverlay||self.profileOverlay)&&!self.recoveringContent;
     self.pullRefresh.enabled=self.refreshable&&!self.websiteOverlay&&!self.profileOverlay&&!self.keyboardVisible&&!self.textSelected&&!self.refreshing;
 }
 - (BOOL)canStartBackAtPoint:(CGPoint)point velocity:(CGPoint)velocity {
@@ -469,6 +478,9 @@ static UIView *ERPFocusedView(UIView *view) {
 #endif
     if (gesture.state==UIGestureRecognizerStateBegan) {
         if(self.profileOverlay?[self.pageNavigation beginOverlayInteractive]:[self.pageNavigation beginInteractive]){[self haptic:@"selection"];[self.pageNavigation updateInteractive:distance];}
+#if ERP_TESTING
+        if(self.verifyTrimDuringBack&&self.pageNavigation.interactive){self.verifyTrimDuringBack=NO;[self didReceiveMemoryWarning];}
+#endif
     }
     if (gesture.state==UIGestureRecognizerStateChanged) [self.pageNavigation updateInteractive:distance];
     if (gesture.state==UIGestureRecognizerStateEnded || gesture.state==UIGestureRecognizerStateCancelled) {
@@ -602,6 +614,10 @@ static UIView *ERPFocusedView(UIView *view) {
         if([kind isEqual:@"verifySnapshotStall"]&&[self.web isKindOfClass:ERPVerificationWebView.class]){
             ((ERPVerificationWebView *)self.web).stallSnapshot=YES;return;
         }
+        if([NSProcessInfo.processInfo.arguments containsObject:@"--verify-gestures"]){
+            if([kind isEqual:@"verifyTrimDuringBack"]){self.verifyTrimDuringBack=YES;return;}
+            if([kind isEqual:@"verifyContentRecovery"]){[self webViewWebContentProcessDidTerminate:self.web];return;}
+        }
 #endif
         NSString *owner=body[@"entryKey"];
         if([owner isKindOfClass:NSString.class]&&self.pageNavigation.currentKey.length&&
@@ -648,7 +664,7 @@ static UIView *ERPFocusedView(UIView *view) {
         } else if ([kind isEqual:@"willNavigate"]) {
             if(!self.keyboardVisible&&!self.websiteOverlay&&!self.profileOverlay&&!self.rowPressed&&!self.pageNavigation.transitioning)[self.pageNavigation capture];
         } else if ([kind isEqual:@"pagePainted"]) {
-            NSString *key=body[@"entryKey"];if([key isKindOfClass:NSString.class]&&key.length<=180){[self.pageNavigation painted:key];[self captureSnapshot];}
+            NSString *key=body[@"entryKey"];if([key isKindOfClass:NSString.class]&&key.length<=180){[self.pageNavigation painted:key];[self captureSnapshot];if(self.recoveringContent){self.recoveringContent=NO;[self contentReady];}}
         } else if ([kind isEqual:@"routeSettled"]) {
             NSString *key=body[@"entryKey"];
             if([key isKindOfClass:NSString.class]&&key.length<=180){[self.pageNavigation settled:key];if(!self.keyboardVisible&&!self.websiteOverlay&&!self.profileOverlay&&!self.rowPressed)[self.pageNavigation capture];}
@@ -1197,7 +1213,28 @@ static UIView *ERPFocusedView(UIView *view) {
 }
 - (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *)navigation withError:(NSError *)error { [self showError:error]; }
 - (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *)navigation withError:(NSError *)error { [self showError:error]; }
-- (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView { [webView reload]; }
+- (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView {
+    UIImage *surface=[self.pageNavigation recoverySurface];
+    self.loadingGeneration++;[self.loadingCover.layer removeAllAnimations];
+    self.loadingCover.alpha=1;self.loadingCover.hidden=NO;self.hasContent=NO;self.recoveringContent=YES;
+    [self.recoveryImage removeFromSuperview];
+    self.recoveryImage=[[UIImageView alloc] initWithImage:surface];self.recoveryImage.frame=self.loadingCover.bounds;
+    self.recoveryImage.autoresizingMask=UIViewAutoresizingFlexibleWidth|UIViewAutoresizingFlexibleHeight;
+    self.recoveryImage.contentMode=UIViewContentModeTopLeft;self.recoveryImage.clipsToBounds=YES;
+    [self.loadingCover insertSubview:self.recoveryImage atIndex:0];[self.view bringSubviewToFront:self.loadingCover];
+    self.loadingPanel.backgroundColor=[self.statusBarSurface.backgroundColor colorWithAlphaComponent:.97];self.loadingPanel.layer.cornerRadius=18;
+    self.loadingPanel.layoutMargins=UIEdgeInsetsMake(18,18,18,18);self.loadingPanel.layoutMarginsRelativeArrangement=YES;
+    self.retryButton.hidden=YES;self.loadingCaption.text=@"正在恢复页面…";[self.spinner startAnimating];
+    self.snapshotGeneration++;[self.pageNavigation clear];[self.pageNavigation cancelCapture];[self finishRefresh];
+    self.horizontalZones=@[];self.selectionZones=@[];self.textSelected=NO;self.rowPressed=NO;self.profileOverlay=NO;self.websiteOverlay=NO;
+    self.canGoBack=NO;self.navModelVisible=NO;[self restoreNavigation];[self updateBackAvailability];
+    [webView reload];
+    NSUInteger owner=self.loadingGeneration;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW,15*NSEC_PER_SEC),dispatch_get_main_queue(),^{
+        if(owner!=self.loadingGeneration||!self.recoveringContent)return;
+        [self.spinner stopAnimating];self.loadingCaption.text=@"页面恢复较慢，可以重新连接。";self.retryButton.hidden=NO;
+    });
+}
 - (void)webView:(WKWebView *)webView decidePolicyForNavigationAction:(WKNavigationAction *)action decisionHandler:(void (^)(WKNavigationActionPolicy))decisionHandler {
     NSURL *url=action.request.URL;
     BOOL main=action.targetFrame.isMainFrame || !action.targetFrame;

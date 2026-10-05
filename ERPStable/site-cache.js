@@ -581,6 +581,7 @@
       const m = location.pathname.match(/^\/matches\/([\w-]{1,120})$/); if (!m || !active || document.hidden) return;
       await Promise.allSettled([get('/api/v1/matches/'+m[1]),get('/api/v1/matches/'+m[1]+'/messages?limit=50')]);
     },
+    trimMemory() { bodies.clear(); },
     clear() { epoch++;stopSync();for(const c of ownedControllers)c.abort(); bodies.clear(); flights.clear(); queryClient = null; bus = null;importing=false; }
   };
   document.addEventListener('pointerdown',event => {

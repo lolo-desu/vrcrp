@@ -66,11 +66,11 @@
     if(source&&source.getBoundingClientRect().height>0){header=inertCopy(source);header.style.flexShrink='0';}
     return header?.cloneNode(true)||null;
   }
-  function clipped(r,parent) {
+  function clipped(r,parent,readStyle=getComputedStyle,readRect=rect) {
     let clip={x:0,y:0,width:innerWidth,height:innerHeight};
     for(let n=parent;n&&n!==document.body;n=n.parentElement){
-      const s=getComputedStyle(n);if(!/(hidden|clip|auto|scroll)/.test(s.overflowX+' '+s.overflowY))continue;
-      const b=rect(n),right=Math.min(clip.x+clip.width,b.x+b.width),bottom=Math.min(clip.y+clip.height,b.y+b.height);
+      const s=readStyle(n);if(!/(hidden|clip|auto|scroll)/.test(s.overflowX+' '+s.overflowY))continue;
+      const b=readRect(n),right=Math.min(clip.x+clip.width,b.x+b.width),bottom=Math.min(clip.y+clip.height,b.y+b.height);
       clip.x=Math.max(clip.x,b.x);clip.y=Math.max(clip.y,b.y);clip.width=Math.max(0,right-clip.x);clip.height=Math.max(0,bottom-clip.y);
     }
     return r.width>0&&r.height>0&&r.y<innerHeight&&r.y+r.height>0&&clip.width>0&&clip.height>0?clip:null;
@@ -90,12 +90,12 @@
     if(staticArea.test(path))return !!el.closest('h2,h3,fieldset')||el.matches('label,legend')||path==='/settings'&&el.classList.contains('font-semibold');
     return false;
   }
-  function elementStyle(el) {
-    const s=getComputedStyle(el),keys=['backgroundColor','borderTopWidth','borderRightWidth','borderBottomWidth','borderLeftWidth','borderTopColor','borderRightColor','borderBottomColor','borderLeftColor','borderTopStyle','borderRightStyle','borderBottomStyle','borderLeftStyle','borderTopLeftRadius','borderTopRightRadius','borderBottomRightRadius','borderBottomLeftRadius','boxShadow','color'];
+  function elementStyle(el,readStyle=getComputedStyle) {
+    const s=readStyle(el),keys=['backgroundColor','borderTopWidth','borderRightWidth','borderBottomWidth','borderLeftWidth','borderTopColor','borderRightColor','borderBottomColor','borderLeftColor','borderTopStyle','borderRightStyle','borderBottomStyle','borderLeftStyle','borderTopLeftRadius','borderTopRightRadius','borderBottomRightRadius','borderBottomLeftRadius','boxShadow','color'];
     return Object.fromEntries(keys.map(k=>[k,s[k]]));
   }
-  function textStyle(el) {
-    const s=getComputedStyle(el);return Object.fromEntries(['fontFamily','fontSize','fontWeight','fontStyle','letterSpacing','lineHeight','color','textTransform','textDecorationLine'].map(k=>[k,s[k]]));
+  function textStyle(el,readStyle=getComputedStyle) {
+    const s=readStyle(el);return Object.fromEntries(['fontFamily','fontSize','fontWeight','fontStyle','letterSpacing','lineHeight','color','textTransform','textDecorationLine'].map(k=>[k,s[k]]));
   }
   function fixedLines(node) {
     const lines=[],range=document.createRange();let start=0;
@@ -113,44 +113,50 @@
     }
     range.detach();return lines;
   }
-  function svgCopy(el) {
+  function svgCopy(el,readStyle=getComputedStyle) {
     const copy=el.cloneNode(true);for(const node of [copy,...copy.querySelectorAll('*')]){
       for(const a of [...node.attributes])if(/^on/.test(a.name)||/href|^id$/.test(a.name))node.removeAttribute(a.name);
     }
     copy.querySelectorAll('script,foreignObject,image,use').forEach(n=>n.remove());
     copy.removeAttribute('class');copy.setAttribute('width','100%');copy.setAttribute('height','100%');
-    copy.style.color=getComputedStyle(el).color;return copy.outerHTML;
+    copy.style.color=readStyle(el).color;return copy.outerHTML;
   }
   function scene(path) {
     const main=document.getElementById('main');if(!main)return null;
     const roots=[document.querySelector('.app-top'),main].filter(Boolean),layers=[];
+    // The synchronous pass only reads layout. Cache each element once on iOS,
+    // then discard the maps so keyboard/theme/route changes always remeasure.
+    const ios=!!window.webkit?.messageHandlers?.erpNativeApp&&window.__vrcrpPlatform!=='android';
+    const styles=new WeakMap(),rects=new WeakMap();
+    const readStyle=el=>{if(!ios)return getComputedStyle(el);if(!styles.has(el))styles.set(el,getComputedStyle(el));return styles.get(el);};
+    const readRect=el=>{if(!ios)return rect(el);if(!rects.has(el))rects.set(el,rect(el));return rects.get(el);};
     for(const root of roots)for(const el of [root,...root.querySelectorAll('*')]){
       if(layers.length>=240)break;
       if(el.closest(excluded)||el.parentElement?.closest('svg'))continue;
-      const s=getComputedStyle(el),r=rect(el),clip=clipped(r,el.parentElement);
-      let hidden=false;for(let n=el.parentElement;n&&n!==document.body;n=n.parentElement){const t=getComputedStyle(n);if(t.display==='none'||t.visibility==='hidden'||Number(t.opacity)===0){hidden=true;break;}}
+      const s=readStyle(el),r=readRect(el),clip=clipped(r,el.parentElement,readStyle,readRect);
+      let hidden=false;for(let n=el.parentElement;n&&n!==document.body;n=n.parentElement){const t=readStyle(n);if(t.display==='none'||t.visibility==='hidden'||Number(t.opacity)===0){hidden=true;break;}}
       if(hidden||!clip||s.visibility==='hidden'||s.display==='none'||Number(s.opacity)===0)continue;
-      let alpha=Number(s.opacity);for(let n=el.parentElement;n&&n!==document.body;n=n.parentElement)alpha*=Number(getComputedStyle(n).opacity);
+      let alpha=Number(s.opacity);for(let n=el.parentElement;n&&n!==document.body;n=n.parentElement)alpha*=Number(readStyle(n).opacity);
       const add=o=>layers.push({...o,rect:r,clip,alpha});
-      if(el instanceof SVGElement){add({svg:svgCopy(el),style:{color:s.color}});continue;}
+      if(el instanceof SVGElement){add({svg:svgCopy(el,readStyle),style:{color:s.color}});continue;}
       if(el.matches('img,video,canvas,[style*="background-image"]')){
         add({mask:true,style:{borderRadius:s.borderRadius},media:true});continue;
       }
-      if(el.matches('button,input,textarea,label,nav,[role="tab"],[role="switch"]')||s.backgroundColor!=='rgba(0, 0, 0, 0)'||parseFloat(s.borderTopWidth)||parseFloat(s.borderBottomWidth)||s.boxShadow!=='none')add({style:elementStyle(el)});
+      if(el.matches('button,input,textarea,label,nav,[role="tab"],[role="switch"]')||s.backgroundColor!=='rgba(0, 0, 0, 0)'||parseFloat(s.borderTopWidth)||parseFloat(s.borderBottomWidth)||s.boxShadow!=='none')add({style:elementStyle(el,readStyle)});
       const back=el.matches('button')&&!!el.querySelector('svg')&&(/返回|back/i.test(el.getAttribute('aria-label')||'')||el.hasAttribute('data-vrcrp-page-back')||el.hasAttribute('data-vrcrp-chat-back'));
       if(back)add({back:true,style:{}});
       if(el.matches('input,textarea,select')){
         // Values are account-specific. Keep the real field outline and its
         // empty hint, measured at the original padding/font, never the draft.
         const hint=el.getAttribute('placeholder');if(hint){const x=parseFloat(s.paddingLeft)||0,y=parseFloat(s.paddingTop)||0;
-          layers.push({rect:{x:r.x+x,y:r.y+y,width:Math.max(0,r.width-x-(parseFloat(s.paddingRight)||0)),height:parseFloat(s.lineHeight)||24},clip,alpha,style:{...textStyle(el),color:getComputedStyle(el,'::placeholder').color},text:hint});}
+          layers.push({rect:{x:r.x+x,y:r.y+y,width:Math.max(0,r.width-x-(parseFloat(s.paddingRight)||0)),height:parseFloat(s.lineHeight)||24},clip,alpha,style:{...textStyle(el,readStyle),color:getComputedStyle(el,'::placeholder').color},text:hint});}
         continue;
       }
       for(const node of el.childNodes){
         if(node.nodeType!==Node.TEXT_NODE||!node.textContent.trim())continue;
         const range=document.createRange();range.selectNodeContents(node);const boxes=[...range.getClientRects()];range.detach();
         const fixed=fixedText(el,path);
-        if(fixed){for(const line of fixedLines(node))layers.push({...line,clip,alpha,style:textStyle(el)});}
+        if(fixed){for(const line of fixedLines(node))layers.push({...line,clip,alpha,style:textStyle(el,readStyle)});}
         else for(const b of boxes){if(b.width<1||b.height<1)continue;const h=Math.min(12,b.height*.55);
           layers.push({rect:{x:b.x,y:b.y+(b.height-h)/2,width:b.width,height:h},clip,alpha,mask:true,style:{borderRadius:'6px'}});}
       }

@@ -30,7 +30,7 @@ button{font:14px system-ui;padding:8px;border:0;border-radius:10px;background:#d
 </nav>
 <script>
 window.__fixtureClicks=0;
-history.replaceState({idx:0,key:'initial'},'',location.href);
+if(!Number.isInteger(history.state?.idx))history.replaceState({idx:0,key:'initial'},'',location.href);
 function active(){document.querySelectorAll('.app-bottom a').forEach(a=>{if(location.pathname===a.getAttribute('href')||location.pathname.startsWith(a.getAttribute('href')+'/'))a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')})}
 document.querySelectorAll('.app-bottom a').forEach(a=>a.addEventListener('click',e=>{e.preventDefault();window.__fixtureClicks++;history.pushState({idx:(history.state?.idx??0)+1,key:Math.random().toString()},'',a.getAttribute('href'));active()}));
 window.addEventListener('popstate',active);active();
