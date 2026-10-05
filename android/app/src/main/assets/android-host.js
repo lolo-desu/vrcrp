@@ -17,7 +17,7 @@
     }
     return window.__vrcrpBack?.()===true;
   };
-  const roots=new Set(['/','/discover','/browse','/likes','/likes/sent','/matches','/posts','/me']);
+  const roots=new Set(['/','/discover','/browse','/likes','/likes/sent','/likes/secret','/matches','/posts','/me']);
   let previous=location.pathname,mode='none';
   const observe=()=>{
     const path=location.pathname;
@@ -35,7 +35,7 @@
 })();
 (() => {
   if(window!==window.top||location.origin!=='https://erp.sex')return;
-  const allowed=new Set(['/matches','/likes','/likes/sent','/visitors','/notifications','/posts','/me','/browse']);
+  const allowed=new Set(['/matches','/likes','/likes/sent','/likes/secret','/visitors','/notifications','/posts','/me','/browse']);
   let pull=null,hint=null,busy=false;
   function clear(){hint?.remove();hint=null;pull=null;}
   document.addEventListener('touchstart',event=>{

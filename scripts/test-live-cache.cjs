@@ -6,7 +6,7 @@ const clone=value=>JSON.parse(JSON.stringify(value));
 function fixture(withNotifications=false){
  const client=new QueryClient({defaultOptions:{queries:{retry:false,staleTime:Infinity,gcTime:Infinity}}});client.setQueryData(['me'],{id:'self'});
  const received=['peer-1','peer-2'].map(id=>({user:{id},createdAt:'2026-01-01'}));
- const server={received,sent:clone(received),visitors:[{user:{id:'visitor-1'},new:true}],matches:[{id:'thread-1',unreadCount:2}],posts:[{id:'post-1',text:'old'}],notifications:[{id:'notice-1',read:false}],profile:{id:'peer-1',displayName:'old',relation:{swiped:'none'}},counters:{unreadMessages:7,newLikes:3,newVisitors:1,unreadNotifications:1},failure:false};
+ const server={received,sent:clone(received),secret:[],groups:{groups:[],defaultCount:1,unmatchedCount:0},browse:[],visitors:[{user:{id:'visitor-1'},new:true}],matches:[{id:'thread-1',unreadCount:2}],posts:[{id:'post-1',text:'old'}],notifications:[{id:'notice-1',read:false}],profile:{id:'peer-1',displayName:'old',relation:{swiped:'none'}},counters:{unreadMessages:7,newLikes:3,newVisitors:1,unreadNotifications:1},failure:false};
  const timers=new Map(),requests=[],held=[];let timerID=0,offset=0,holdRead=false;
  const document=new EventTarget();document.hidden=false;document.querySelectorAll=()=>[];document.getElementById=id=>id==='root'?{__reactContainer$fixture:{memoizedProps:{value:client}}}:null;
  const location={origin:'https://erp.sex',href:'https://erp.sex/likes',pathname:'/likes'};
@@ -20,12 +20,15 @@ function fixture(withNotifications=false){
     const b=typeof options.body==='string'?JSON.parse(options.body):{};
     if(url.pathname==='/api/v1/swipes')server.received=server.received.filter(i=>i.user.id!==b.targetId);
     if(url.pathname.startsWith('/api/v1/likes/sent/')&&method==='DELETE')server.sent=server.sent.filter(i=>i.user.id!==url.pathname.split('/').at(-1));
+    if(url.pathname.startsWith('/api/v1/likes/sent/')&&method==='DELETE')server.secret=server.secret.filter(i=>i.user.id!==url.pathname.split('/').at(-1));
+    if(url.pathname==='/api/v1/matches/thread-1/pin')server.matches=server.matches.map(i=>i.id==='thread-1'?{...i,pinned:b.pinned}:i);
+    if(url.pathname==='/api/v1/matches/thread-1/group')server.matches=server.matches.map(i=>i.id==='thread-1'?{...i,groupId:b.groupId}:i);
     if(url.pathname==='/api/v1/notifications/read'){server.notifications=server.notifications.map(i=>b.all||b.ids?.includes(i.id)?{...i,read:true}:i);server.counters.unreadNotifications=server.notifications.filter(i=>!i.read).length;}
     if(url.pathname==='/api/v1/matches/thread-1/read'){server.matches=server.matches.map(i=>({...i,unreadCount:0}));server.counters.unreadMessages=5;}
     return response({ok:true});
    }
    const p=url.pathname;
-   const value=p.endsWith('/me')?{id:'self'}:p.endsWith('/messages')?{items:server.chatMessages||[]}:p.endsWith('/me/counters')?server.counters:p.endsWith('/likes/received')?{items:server.received,nextCursor:null}:p.endsWith('/likes/sent')?{items:server.sent,nextCursor:null}:p.endsWith('/visitors')?{items:server.visitors,nextCursor:null}:p.endsWith('/matches')?{items:server.matches,nextCursor:null}:p.endsWith('/notifications')?{items:server.notifications,nextCursor:null}:p.endsWith('/posts')?{items:server.posts,nextCursor:null}:server.profile;
+   const value=p.endsWith('/me')?{id:'self'}:p.endsWith('/messages')?{items:server.chatMessages||[]}:p.endsWith('/me/counters')?server.counters:p.endsWith('/match-groups')?server.groups:p.endsWith('/browse')?{items:server.browse,nextCursor:null}:p.endsWith('/likes/secret')?{items:server.secret,nextCursor:null}:p.endsWith('/likes/received')?{items:server.received,nextCursor:null}:p.endsWith('/likes/sent')?{items:server.sent,nextCursor:null}:p.endsWith('/visitors')?{items:server.visitors,nextCursor:null}:p.endsWith('/matches')?{items:server.matches,nextCursor:null}:p.endsWith('/notifications')?{items:server.notifications,nextCursor:null}:p.endsWith('/posts')?{items:server.posts,nextCursor:null}:server.profile;
    return response(clone(value));
   };
   const value=run();let promise;
@@ -96,7 +99,7 @@ const pages=items=>({pages:[{items,nextCursor:null}],pageParams:[null]});
  assert.equal(g.client.getQueryData(likesKey),undefined);
  assert.equal(g.client.getQueryData(sentKey).pages[0].items.length,2);
  assert.equal(g.client.getQueryData(['m','sfw','zh','visitors']),undefined);
- assert.equal(g.client.getQueryData(['m','sfw','zh','matches','active']).pages[0].items[0].unreadCount,2);
+ assert.equal(g.client.getQueryData(['m','sfw','zh','matches','active','','']).pages[0].items[0].unreadCount,2);
  assert.equal(g.client.getQueryData(['notifications']).pages[0].items[0].read,false);
  assert.equal(g.client.getQueryData(['counters']).newLikes,3);
  assert.equal(g.client.getQueryData(['counters']).newVisitors,1);
@@ -168,6 +171,37 @@ const pages=items=>({pages:[{items,nextCursor:null}],pageParams:[null]});
  assert.equal(n.nativeMessages.filter(v=>v.kind==='chatMessage'&&v.messageId===fresh.id).length,1,'fresh message was lost or duplicated after integrated read');n.destroy();
  console.log('PASS: integrated real QueryClient + notifications + delayed GET + successful read, with fresh next-message delivery');
  }
- fs.mkdirSync(path.join(__dirname,'../build'),{recursive:true});fs.writeFileSync(path.join(__dirname,'../build/live-cache-verification.json'),JSON.stringify({queryCore:'5.104.1',checks:['fresh-query-refetch','successful-skip','failed-write','pagination-preserved','content-mode-isolation','stale-read-fence','cancel-sent-like','notification-read','request-coalescing','visible-page-polling','hidden-page-paused','resume-sync','editor-draft-source-preserved','account-isolation','read-ack-shared-counters','late-counter-read-fence','late-list-read-fence','fresh-message-after-read','failed-read-preserves-badge'],passed:true},null,2));
+ { // October website: seven-part list keys, filtered lists, server pins and secret likes.
+ const v=fixture(),globalKey=['m','sfw','zh','matches','active','',''],groupKey=['m','sfw','zh','matches','active','friends',''],searchKey=['m','sfw','zh','matches','active','','target'];
+ const thread={id:'thread-1',user:{id:'peer-1',displayName:'target'},groupId:'friends',pinned:false,unreadCount:2,lastMessage:{id:'viewed-october',senderId:'peer-1',createdAt:'2026-10-05'}};
+ v.server.matches=[thread,{id:'other-thread',user:{id:'other'},groupId:null,unreadCount:5}];
+ v.query(globalKey,'/api/v1/matches?state=active',pages(clone(v.server.matches)));
+ v.query(groupKey,'/api/v1/matches?state=active&group=friends',{pages:[{items:[clone(thread)],nextCursor:'group-next'}],pageParams:[null]});
+ v.query(searchKey,'/api/v1/matches?q=target',{pages:[{items:[clone(thread)],nextCursor:'search-next'}],pageParams:[null]});
+ v.query(['m','sfw','zh','matches','unmatched','',''],'/api/v1/matches?state=unmatched',pages([]));
+ v.client.setQueryData(['counters'],clone(v.server.counters));
+ await v.window.fetch('/api/v1/matches/thread-1/read',{method:'POST',body:JSON.stringify({lastMessageId:'viewed-october'})});await tick();
+ for(const key of [globalKey,groupKey,searchKey])assert.equal(v.client.getQueryData(key).pages[0].items[0].unreadCount,0,'new list key retained read badge');
+ assert.equal(v.client.getQueryData(['counters']).unreadMessages,5,'duplicate list variants decremented counters twice');
+ assert(v.window.__vrcrpSiteCache.states().includes('unmatched'),'new closed-list key omitted from sync');
+ v.window.__vrcrpSiteCache.commitMatches({items:[{...thread,unreadCount:1,lastMessage:{...thread.lastMessage,id:'new-october',createdAt:'2026-10-06'}},{id:'not-in-filter',groupId:null}],nextCursor:'global-next'});
+ for(const [key,cursor] of [[groupKey,'group-next'],[searchKey,'search-next']]){const page=v.client.getQueryData(key).pages[0];assert.deepEqual(page.items.map(i=>i.id),['thread-1']);assert.equal(page.nextCursor,cursor);assert.equal(page.items[0].unreadCount,1);}
+ v.server.failure=true;assert.equal(await v.window.__vrcrpSiteCache.setChatPinned('thread-1',true),false);assert.equal(v.window.__vrcrpSiteCache.chatMatch('thread-1').pinned,false);v.server.failure=false;
+ assert(await v.window.__vrcrpSiteCache.setChatPinned('thread-1',true));await tick();assert.equal(v.window.__vrcrpSiteCache.chatMatch('thread-1').pinned,true);
+ await v.window.fetch('/api/v1/matches/thread-1/group',{method:'PUT',body:JSON.stringify({groupId:'other-group'})});await tick();
+ assert.equal(v.client.getQueryData(groupKey).pages[0].items.length,0,'moved chat remained in its former group');
+ assert.equal(v.client.getQueryData(globalKey).pages[0].items[0].groupId,'other-group');
+ const secretKey=['m','sfw','zh','likes','secret'],profileKey=['m','sfw','zh','profile','peer-1'];
+ v.client.setQueryData(secretKey,pages([{user:{id:'peer-1'},action:'like',secret:true}]));v.client.setQueryData(sentKey,pages([]));v.client.setQueryData(likesKey,pages([{user:{id:'peer-1'}}]));v.client.setQueryData(profileKey,{id:'peer-1',relation:{swiped:'none',secret:false}});
+ await v.window.fetch('/api/v1/swipes',{method:'POST',body:JSON.stringify({targetId:'peer-1',action:'like',secret:true})});await tick();
+ assert.equal(v.client.getQueryData(profileKey).relation.secret,true);assert.equal(v.client.getQueryData(likesKey).pages[0].items.length,0);
+ await v.window.fetch('/api/v1/swipes/upgrade',{method:'POST',body:JSON.stringify({targetId:'peer-1',action:'superlike',secret:true})});await tick();assert.equal(v.client.getQueryData(secretKey).pages[0].items[0].action,'superlike');
+ v.server.failure=true;await v.window.fetch('/api/v1/swipes/upgrade',{method:'POST',body:JSON.stringify({targetId:'peer-1',action:'superlike'})});await tick();assert.equal(v.client.getQueryData(secretKey).pages[0].items.length,1);assert.equal(v.client.getQueryData(profileKey).relation.secret,true);v.server.failure=false;
+ await v.window.fetch('/api/v1/swipes/upgrade',{method:'POST',body:JSON.stringify({targetId:'peer-1',action:'superlike'})});await tick();assert.equal(v.client.getQueryData(secretKey).pages[0].items.length,0);assert.equal(v.client.getQueryData(profileKey).relation.secret,false);
+ v.client.setQueryData(secretKey,pages([{user:{id:'peer-1'},action:'like',secret:true}]));await v.window.fetch('/api/v1/likes/sent/peer-1',{method:'DELETE'});await tick();assert.equal(v.client.getQueryData(secretKey).pages[0].items.length,0);assert.equal(v.client.getQueryData(profileKey).relation.swiped,'none');
+ const hotKey=['m','sfw','zh','browse','hot',{}];v.server.browse=[{id:'server-first',likes:1},{id:'server-second',likes:999}];const ranking=v.query(hotKey,'/api/v1/browse?sort=hot',pages([]));await ranking.refetch();assert.deepEqual(v.client.getQueryData(hotKey).pages[0].items.map(i=>i.id),['server-first','server-second'],'client replaced official ranking');v.server.browse.reverse();await ranking.refetch();assert.deepEqual(v.client.getQueryData(hotKey).pages[0].items.map(i=>i.id),['server-second','server-first'],'ranking refetch returned stale cache');
+ v.destroy();console.log('PASS: October list keys, groups/search/cursor isolation, server pin success/failure, secret upgrade/cancel relations, official ranking order and fresh results');
+ }
+ fs.mkdirSync(path.join(__dirname,'../build'),{recursive:true});fs.writeFileSync(path.join(__dirname,'../build/live-cache-verification.json'),JSON.stringify({queryCore:'5.104.1',checks:['fresh-query-refetch','successful-skip','failed-write','pagination-preserved','content-mode-isolation','stale-read-fence','cancel-sent-like','notification-read','request-coalescing','visible-page-polling','hidden-page-paused','resume-sync','editor-draft-source-preserved','account-isolation','read-ack-shared-counters','late-counter-read-fence','late-list-read-fence','fresh-message-after-read','failed-read-preserves-badge','october-seven-part-match-keys','filtered-list-membership-and-cursor','server-pin-failure-and-success','group-move-removes-old-row','secret-upgrade-and-cancel','official-ranking-order-and-refetch'],passed:true},null,2));
  console.log('PASS: real QueryCore fresh refetch, successful/failed operations, loaded pages, mode isolation, stale-read race, sent-like/read patches, request coalescing, visible polling/resume and account isolation');
 })().catch(error=>{console.error(error);process.exitCode=1});

@@ -199,14 +199,14 @@
         [canvas setFill];UIRectFill(CGRectMake(0,0,size.width,size.height));
         NSDictionary *layout=self.placeholderLayouts[path];
         if(layout&&fabs([layout[@"width"] doubleValue]-size.width)<2&&[layout[@"layers"] count]){[self drawSurfaceLayout:layout context:ctx.CGContext];return;}
-        BOOL globalHeader=[@[@"/",@"/discover",@"/likes",@"/likes/sent",@"/matches",@"/posts",@"/me"] containsObject:path];
+        BOOL globalHeader=[@[@"/",@"/discover",@"/likes",@"/likes/sent",@"/likes/secret",@"/matches",@"/posts",@"/me"] containsObject:path];
         BOOL chatHeader=[path rangeOfString:@"^/matches/[^/]+/?$" options:NSRegularExpressionSearch].location!=NSNotFound;
         if(globalHeader||chatHeader){[paper setFill];UIRectFill(CGRectMake(0,0,size.width,56));}
         void(^block)(CGRect,CGFloat)=^(CGRect rect,CGFloat radius){[[ink colorWithAlphaComponent:.1] setFill];[[UIBezierPath bezierPathWithRoundedRect:rect cornerRadius:radius] fill];};
         void(^card)(CGRect)=^(CGRect rect){[paper setFill];UIBezierPath *shape=[UIBezierPath bezierPathWithRoundedRect:rect cornerRadius:16];[shape fill];[[ink colorWithAlphaComponent:.12] setStroke];shape.lineWidth=1;[shape stroke];};
         BOOL chat=[path rangeOfString:@"^/matches/[^/]+/?$" options:NSRegularExpressionSearch].location!=NSNotFound;
-        BOOL list=[@[@"/likes",@"/likes/sent",@"/matches",@"/notifications",@"/visitors"] containsObject:path]||[path hasPrefix:@"/settings"];
-        BOOL detail=![@[@"/discover",@"/browse",@"/likes",@"/likes/sent",@"/matches",@"/posts",@"/me"] containsObject:path];
+        BOOL list=[@[@"/likes",@"/likes/sent",@"/likes/secret",@"/matches",@"/notifications",@"/visitors"] containsObject:path]||[path hasPrefix:@"/settings"];
+        BOOL detail=![@[@"/discover",@"/browse",@"/likes",@"/likes/sent",@"/likes/secret",@"/matches",@"/posts",@"/me"] containsObject:path];
         if(detail){[ink setStroke];UIBezierPath *back=[UIBezierPath bezierPath];[back moveToPoint:CGPointMake(27,20)];[back addLineToPoint:CGPointMake(19,28)];[back addLineToPoint:CGPointMake(27,36)];back.lineWidth=2.5;[back stroke];}
         if(chat){block(CGRectMake(50,8,40,40),20);block(CGRectMake(102,18,110,12),6);}
         else{NSString *title=self.surfaceTitle?:@"";[title drawAtPoint:CGPointMake(detail?64:16,18) withAttributes:@{NSFontAttributeName:[UIFont systemFontOfSize:17 weight:UIFontWeightSemibold],NSForegroundColorAttributeName:ink}];}

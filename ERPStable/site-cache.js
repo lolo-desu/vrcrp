@@ -17,13 +17,19 @@
   const family=q=>q.queryKey?.[0]==='m'?q.queryKey[3]:({ownProfile:'profile',myTonight:'profile',worldRef:'world'}[q.queryKey?.[0]]||q.queryKey?.[0]);
   const scoped=q=>q.queryKey?.[0]!=='m'||q.queryKey[1]===headers['X-Content-Mode']&&(!headers['Accept-Language']||q.queryKey[2]===headers['Accept-Language']);
   const observed=q=>typeof q.isActive==='function'?q.isActive():q.getObserversCount()>0;
-  const pageFamilies=new Set(['likes','visitors','notifications','posts','profile','guestbook','guestbookDanmaku','browse','world','worldUsers','sameModel']);
-  const livePage=q=>pageFamilies.has(family(q))&&!['ownProfile','myTonight','worldRef'].includes(q.queryKey?.[0]);
+  const pageFamilies=new Set(['likes','visitors','notifications','posts','profile','guestbook','guestbookDanmaku','browse','world','worldUsers','sameModel','matches']);
+  function matchList(q){
+    const k=q.queryKey;
+    if(k?.[0]!=='m'||k[3]!=='matches'||!['active','unmatched'].includes(k[4])||![5,7].includes(k.length))return null;
+    return {state:k[4],group:k[5]||'',search:k[6]||''};
+  }
+  const livePage=q=>pageFamilies.has(family(q))&&!['ownProfile','myTonight','worldRef'].includes(q.queryKey?.[0])&&(family(q)!=='matches'||matchList(q)||q.queryKey[4]==='groups');
   function resource(url){
     const p=url.pathname.slice('/api/v1/'.length).split('/');
     if(p[0]==='profiles')return p[2]==='guestbook'?'guestbook':'profile';
     if(p[0]==='worlds')return p[2]==='users'?'worldUsers':'world';
     if(p[0]==='users'&&p[2]==='posts')return 'posts';
+    if(p[0]==='match-groups')return 'matches';
     if(p[0]==='guestbook')return p[1]==='danmaku'?'guestbookDanmaku':'guestbook';
     return p[0];
   }
@@ -86,9 +92,11 @@
   // fetch their counters early, but leave those endpoints to the visible page.
   const warmLists=[
     {key:['likes','sent'],url:'/api/v1/likes/sent'},
+    {key:['likes','secret'],url:'/api/v1/likes/secret'},
     {key:['notifications'],url:'/api/v1/notifications',global:true},
-    {key:['matches','active'],url:'/api/v1/matches?state=active'},
-    {key:['matches','unmatched'],url:'/api/v1/matches?state=unmatched'}
+    {key:['matches','active','',''],url:'/api/v1/matches?state=active'},
+    {key:['matches','unmatched','',''],url:'/api/v1/matches?state=unmatched'},
+    {key:['matches','groups'],url:'/api/v1/match-groups',single:true}
   ];
   function scheduleListWarm(){
     if(warmTimer||!foreground())return;
@@ -107,17 +115,18 @@
       if(listWarming.has(token)||q&&(observed(q)||q.state.fetchStatus==='fetching'||q.state.status==='error'&&Date.now()-(q.state.errorUpdatedAt||0)<30000||q.state.data!==undefined&&!q.state.isInvalidated))return;
       listWarming.set(token,owner);
       try{
-        await c.prefetchInfiniteQuery({
-          queryKey:key,initialPageParam:null,staleTime:15000,retry:false,
-          queryFn:async({pageParam,signal})=>{
+        const queryFn=async({pageParam,signal})=>{
             const response=await get(list.url+(pageParam?(list.url.includes('?')?'&':'?')+'cursor='+encodeURIComponent(pageParam):''));
             if(owner!==epoch||signal.aborted)throw new DOMException('Cancelled preload','AbortError');
             if(!response?.ok)throw new Error('List preload failed');
             const value=unwrap(await response.json());
             if(owner!==epoch||signal.aborted)throw new DOMException('Cancelled preload','AbortError');
-            if(!value||typeof value!=='object'||!Array.isArray(value.items)&&value.locked!==true)throw new Error('Invalid list');
+            if(!value||typeof value!=='object'||(list.single?!Array.isArray(value.groups):!Array.isArray(value.items)&&value.locked!==true))throw new Error('Invalid list');
             return value;
-          },
+          };
+        if(list.single)await c.prefetchQuery({queryKey:key,staleTime:15000,retry:false,queryFn});
+        else await c.prefetchInfiniteQuery({
+          queryKey:key,initialPageParam:null,staleTime:15000,retry:false,queryFn,
           getNextPageParam:page=>page.locked?undefined:page.nextCursor??undefined
         });
       }finally{if(listWarming.get(token)===owner)listWarming.delete(token);}
@@ -129,8 +138,8 @@
   function patchItems(c,predicate,update){
     for(const q of c.getQueryCache().getAll())if(scoped(q)&&predicate(q))c.setQueryData(q.queryKey,old=>{
       if(!old)return old;
-      if(Array.isArray(old.pages))return {...old,pages:old.pages.map(page=>Array.isArray(page.items)?{...page,items:update(page.items)}:page)};
-      return Array.isArray(old.items)?{...old,items:update(old.items)}:old;
+      if(Array.isArray(old.pages))return {...old,pages:old.pages.map(page=>Array.isArray(page.items)?{...page,items:update(page.items,q)}:page)};
+      return Array.isArray(old.items)?{...old,items:update(old.items,q)}:old;
     });
   }
   function mutationPlan(url,method){
@@ -142,7 +151,7 @@
     else if(p[0]==='posts'||p[0]==='guestbook'||p[0]==='profiles'&&p[2]==='guestbook')groups=['posts','profile','guestbook','guestbookDanmaku','notifications','counters'];
     else if(p[0]==='profiles'||p[0]==='me'&&['profile','reactions','avatar','avoid','passes','vrc','settings','tag-attitudes','tonight'].includes(p[1])||p[0]==='users'&&p[2]==='block')groups=['me','profile','tagAttitudes','browse','likes','visitors','worldUsers','sameModel','blocks','avoid','counters',...(p[2]==='block'?['matches']:[])];
     else if(p[0]==='notifications')groups=['notifications','counters'];
-    else if(p[0]==='matches'||p[0]==='messages')groups=['matches','counters'];
+    else if(p[0]==='matches'||p[0]==='messages'||p[0]==='match-groups')groups=['matches','counters'];
     else if(p[0]==='visitors')groups=['visitors','counters'];
     else if(p[0]==='worlds')groups=['world','worldUsers','profile'];
     return groups?{groups,path:p,method}:null;
@@ -155,11 +164,18 @@
     changed(plan.groups);if(!c)return;
     // Patch only consequences confirmed by the successful server operation.
     // Keep loaded pages/pageParams, then reconcile their cursor boundaries.
-    if(p[0]==='swipes'&&p.length===1&&idOK(target)&&['like','pass','superlike'].includes(body?.action)){
-      patchItems(c,q=>family(q)==='likes'&&q.queryKey[4]==='received',items=>items.filter(item=>item.user?.id!==target));
-      for(const q of c.getQueryCache().getAll())if(scoped(q)&&family(q)==='profile'&&q.queryKey[4]===target)c.setQueryData(q.queryKey,old=>old?.relation?{...old,relation:{...old.relation,swiped:body.action}}:old);
+    if(p[0]==='swipes'&&[undefined,'upgrade'].includes(p[1])&&idOK(target)&&['like','pass','superlike'].includes(body?.action)){
+      const secret=body.secret===true&&body.action!=='pass';
+      if(p.length===1)patchItems(c,q=>family(q)==='likes'&&q.queryKey[4]==='received',items=>items.filter(item=>item.user?.id!==target));
+      for(const kind of ['sent','secret'])patchItems(c,q=>family(q)==='likes'&&q.queryKey[4]===kind,items=>items.filter(item=>item.user?.id!==target||body.action!=='pass'&&(kind==='secret')===secret).map(item=>item.user?.id===target?{...item,action:body.action,secret}:item));
+      for(const q of c.getQueryCache().getAll())if(scoped(q)&&family(q)==='profile'&&q.queryKey[4]===target)c.setQueryData(q.queryKey,old=>old?.relation?{...old,relation:{...old.relation,swiped:body.action,secret}}:old);
     }
-    if(p[0]==='likes'&&p[1]==='sent'&&idOK(p[2])&&plan.method==='DELETE')patchItems(c,q=>family(q)==='likes'&&q.queryKey[4]==='sent',items=>items.filter(item=>item.user?.id!==p[2]));
+    if(p[0]==='likes'&&p[1]==='sent'&&idOK(p[2])&&plan.method==='DELETE'){
+      patchItems(c,q=>family(q)==='likes'&&['sent','secret'].includes(q.queryKey[4]),items=>items.filter(item=>item.user?.id!==p[2]));
+      for(const q of c.getQueryCache().getAll())if(scoped(q)&&family(q)==='profile'&&q.queryKey[4]===p[2])c.setQueryData(q.queryKey,old=>old?.relation?{...old,relation:{...old.relation,swiped:'none',secret:false}}:old);
+    }
+    if(p[0]==='matches'&&p[2]==='pin'&&idOK(p[1])&&typeof body?.pinned==='boolean')patchItems(c,q=>!!matchList(q),items=>items.map(item=>item.id===p[1]?{...item,pinned:body.pinned}:item));
+    if(p[0]==='matches'&&p[2]==='group'&&idOK(p[1])&&(body?.groupId===null||idOK(body?.groupId)))patchItems(c,q=>!!matchList(q),(items,q)=>items.map(item=>item.id===p[1]?{...item,groupId:body.groupId}:item).filter(item=>item.id!==p[1]||!matchList(q).group||(body.groupId||'default')===matchList(q).group));
     if(p[0]==='posts'&&idOK(p[1])&&p.length===2&&plan.method==='DELETE')patchItems(c,q=>family(q)==='posts',items=>items.filter(item=>item.id!==p[1]));
     if(p[0]==='notifications'&&p[1]==='read'){
       const ids=new Set(Array.isArray(body?.ids)?body.ids.filter(idOK):[]);
@@ -224,7 +240,7 @@
     const read={lastMessageId:forward?lastMessageId:prior.lastMessageId,stamp:forward?stamp:prior.stamp,messageIds:ids};
     threadReads.set(id,read);while(threadReads.size>256)threadReads.delete(threadReads.keys().next().value);
     let removed=0;
-    if(c)patchItems(c,q=>family(q)==='matches'&&q.queryKey.length===5,items=>items.map(item=>{
+    if(c)patchItems(c,q=>!!matchList(q),items=>items.map(item=>{
       if(item.id!==id)return item;
       const latest=item.lastMessage;
       if(latest?.senderId!==user&&!isMessageRead(id,latest?.id,latest?.createdAt))return item;
@@ -312,7 +328,14 @@
     let applied = false;
     for (const q of scopes(c)) {
       const k = q.queryKey;
-      if (k[3] !== 'matches' || k[4] !== state || k.length !== 5) continue;
+      const list=matchList(q);if(!list||list.state!==state)continue;
+      if(list.group||list.search){
+        // A global summary must never replace a filtered list's membership,
+        // order or cursor. Reconcile known rows; its own query fetches the rest.
+        const rows=new Map(value.items.map(item=>[item.id,item]));
+        c.setQueryData(k,old=>old?.pages?{...old,pages:old.pages.map(page=>({...page,items:page.items.map(item=>rows.get(item.id)||item).filter(item=>!list.group||(item.groupId||'default')===list.group)}))}:old);
+        applied=true;continue;
+      }
       c.setQueryData(k, old => {
         if (!old?.pages?.length || !Array.isArray(old.pages[0]?.items)) return old;
         applied = true;
@@ -335,7 +358,7 @@
   }
   function refreshList() {
     const c = client(); if (!c) return emit('match.updated', {});
-    c.invalidateQueries({ predicate: q => q.queryKey[0] === 'm' && q.queryKey[3] === 'matches' && q.queryKey.length === 5, refetchType: 'active' }).catch(() => {});
+    c.invalidateQueries({ predicate: q => scoped(q)&&!!matchList(q), refetchType: 'active' }).catch(() => {});
     return true;
   }
   function findBus() {
@@ -361,7 +384,7 @@
     if (method !== 'GET' || url.origin !== location.origin || !user) return null;
     const m = url.pathname.match(/^\/api\/v1\/matches\/([\w-]{1,120})(\/messages)?$/);
     if (!m) {
-      if (!/^\/api\/v1\/(notifications|posts|worlds|users|profiles|likes|visitors)(?:\/|$)/.test(url.pathname)&&url.pathname!=='/api/v1/matches') return null;
+      if (!/^\/api\/v1\/(notifications|posts|worlds|users|profiles|likes|visitors)(?:\/|$)/.test(url.pathname)&&!['/api/v1/matches','/api/v1/match-groups','/api/v1/browse'].includes(url.pathname)) return null;
       if (/\/(auth|token|export|download|check|verify)(?:\/|$)/.test(url.pathname)) return null;
       return { page:true, resource:resource(url),url, key:JSON.stringify([user,headers['X-Content-Mode'],headers['Accept-Language'] || '',url.pathname+url.search]) };
     }
@@ -492,7 +515,7 @@
   function invalidate(id) { for (const [k,b] of bodies) if (b.d.id === id) bodies.delete(k); }
   function serverEvent(type, value) {
     if (!user) return;
-    const eventGroups=type==='notification.new'?['notifications']:type==='like.received'||type==='like.new'?['likes','profile']:type==='visitor.new'?['visitors']:type==='profile.updated'?['profile','browse','likes']:type.startsWith('post.')?['posts']:type.startsWith('guestbook.')?['guestbook','guestbookDanmaku']:type==='account.updated'?['me','profile','likes','browse']:[];
+    const eventGroups=type==='notification.new'?['notifications']:type==='like.received'||type==='like.new'?['likes','profile','browse']:type==='visitor.new'?['visitors']:type==='profile.updated'?['profile','browse','likes']:type.startsWith('post.')?['posts']:type.startsWith('guestbook.')?['guestbook','guestbookDanmaku']:type.startsWith('match.')?['matches']:type==='account.updated'?['me','profile','likes','browse']:[];
     if(eventGroups.length)changed(eventGroups);
     if(['notification.new','like.received','like.new','visitor.new','message.new','reconnected','announcement.new','announcement.changed','account.updated'].includes(type))window.__vrcrpSyncChats?.();
     if (['match.closed','match.updated','message.recalled','account.updated'].includes(type)) {
@@ -539,14 +562,21 @@
     },
     session(id, nextHeaders) { reset(id); if (nextHeaders) configure(nextHeaders);scheduleListWarm(); },
     active(value) { active = value === true;if(!active){clearTimeout(pollTimer);clearTimeout(refreshTimer);clearTimeout(warmTimer);pollTimer=refreshTimer=warmTimer=0;}else{queueRefresh(pageFamilies,Date.now()-1500,true);armPoll();scheduleListWarm();} }, commitCounters, commitMatches, refreshList, warmList, prefetch, serverEvent, preloadLists,
-    pageChanged(){if(foreground()){window.__vrcrpSyncChats?.();if(location.pathname==='/likes'||location.pathname==='/visitors')queueRefresh([location.pathname==='/likes'?'likes':'visitors'],Date.now(),true);armPoll();scheduleListWarm();}},
+    pageChanged(){if(foreground()){window.__vrcrpSyncChats?.();if(['/likes','/likes/sent','/likes/secret','/visitors','/browse'].includes(location.pathname))queueRefresh([location.pathname.startsWith('/likes')?'likes':location.pathname.slice(1)],Date.now(),true);armPoll();scheduleListWarm();}},
     refreshPage() {
       const c=client();if(!c)return false;
       const groups=new Set(c.getQueryCache().getAll().filter(q=>scoped(q)&&observed(q)).map(family));changed(groups);
       pendingRefresh.clear();clearTimeout(refreshTimer);refreshTimer=0;
       return c.refetchQueries({type:'active',predicate:q=>scoped(q)&&groups.has(family(q))},{cancelRefetch:false}).then(()=>true,()=>true);
     },
-    states() { const c = client(); return c ? [...new Set(scopes(c).filter(q => q.getObserversCount() > 0 && q.queryKey[3] === 'matches' && q.queryKey.length === 5).map(q => q.queryKey[4]))].filter(s => s === 'active' || s === 'unmatched') : ['active']; },
+    states() { const c = client(); return c ? [...new Set(scopes(c).filter(q => q.getObserversCount() > 0&&matchList(q)).map(q => q.queryKey[4]))] : ['active']; },
+    chatMatch(id){const c=client();for(const q of c?.getQueryCache().getAll()||[])if(scoped(q)&&matchList(q)){const match=q.state.data?.pages?.flatMap(p=>p.items||[]).find(m=>m.id===id);if(match)return match;}return null;},
+    chatGroups(){const c=client();return c?.getQueryCache().getAll().find(q=>scoped(q)&&family(q)==='matches'&&q.queryKey[4]==='groups')?.state.data?.groups||[];},
+    async setChatPinned(id,pinned){
+      if(!foreground()||!idOK(id)||typeof pinned!=='boolean')return false;
+      const owner=epoch;
+      try{const response=await window.fetch('/api/v1/matches/'+id+'/pin',{method:'PUT',credentials:'include',headers:{...headers,'Content-Type':'application/json'},body:JSON.stringify({pinned})});return response.ok&&owner===epoch;}catch{return false;}
+    },
     async refreshChat() {
       const m = location.pathname.match(/^\/matches\/([\w-]{1,120})$/); if (!m || !active || document.hidden) return;
       await Promise.allSettled([get('/api/v1/matches/'+m[1]),get('/api/v1/matches/'+m[1]+'/messages?limit=50')]);

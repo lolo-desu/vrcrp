@@ -150,6 +150,12 @@ jobs:
         run: |
           TEST_NODE_MODULES="$PWD/build/verification-deps/node_modules" python3 scripts/test-v017-ui.py
           TEST_NODE_MODULES="$PWD/build/verification-deps/node_modules" node scripts/test-live-cache.cjs
+      - name: Verify current official frontend compatibility
+        run: |
+          python3 scripts/fetch-upstream-ui.py
+          python3 scripts/test-upstream-ui.py
+          ORIGINAL_SITE_CSS="$PWD/build/upstream/$(python3 -c "import json; print(json.load(open('build/upstream/manifest.json'))['css'])")" python3 scripts/test-app-theme.py
+          ORIGINAL_SITE_CSS="$PWD/build/upstream/$(python3 -c "import json; print(json.load(open('build/upstream/manifest.json'))['css'])")" python3 scripts/test-placeholders.py
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -157,6 +163,9 @@ jobs:
           path: |
             build/v017-ui.json
             build/live-cache-verification.json
+            build/upstream-ui-verification.json
+            build/app-theme-verification.json
+            build/placeholder-verification.json
   release:
     if: github.repository != 'lolo-desu/Action-Build' && github.ref == 'refs/heads/main'
     needs: [build, android, shared-ui]

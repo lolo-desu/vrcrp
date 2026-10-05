@@ -2,7 +2,7 @@
   'use strict';
   if (window !== window.top || location.origin !== 'https://erp.sex') return;
   const reduce = () => document.documentElement?.dataset.vrcrpReduceMotion === 'true' || matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const roots = new Set(['/','/discover','/browse','/likes','/likes/sent','/matches','/posts','/me']);
+  const roots = new Set(['/','/discover','/browse','/likes','/likes/sent','/likes/secret','/matches','/posts','/me']);
   let lastPath = location.pathname, queued = false;
   let seen = new WeakSet(), initializedPane = null;
   let press=null,pressTimer=0;
@@ -69,7 +69,7 @@
   document.addEventListener('pointerdown',event=>{
     const row=rowFor(event.target);if(row&&(event.isPrimary!==false)&&event.button===0)startPress(row,event);
     const button=event.target.closest?.('#main button,#main [role="button"]');
-    if(button&&!button.matches(':disabled,[aria-disabled="true"]')&&!button.closest('.stage'))animate(button,[{filter:'brightness(.92)'},{filter:'brightness(1)'}],160);
+    if(button&&!button.matches(':disabled,[aria-disabled="true"]')&&!button.closest('.stage')&&!window.__vrcrpOwnsPointerPress?.(button))animate(button,[{filter:'brightness(.92)'},{filter:'brightness(1)'}],160);
   },{passive:true,capture:true});
   document.addEventListener('pointermove',event=>{if(press&&Math.hypot(event.clientX-press.x,event.clientY-press.y)>8)clearPress();},{passive:true,capture:true});
   document.addEventListener('pointerup',releasePress,{passive:true,capture:true});

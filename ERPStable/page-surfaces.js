@@ -33,6 +33,7 @@
     const selection=getSelection();
     if(selection&&!selection.isCollapsed)for(let i=0;i<selection.rangeCount;i++)for(const r of selection.getRangeAt(i).getClientRects())if(x>=r.left-12&&x<=r.right+12&&y>=r.top-12&&y<=r.bottom+12)return true;
     for(let el=target;el&&el!==panel;el=el.parentElement){
+      if(window.__vrcrpOwnsPointerPress?.(el))return true;
       const style=getComputedStyle(el);
       if(['auto','scroll'].includes(style.overflowX)&&el.scrollWidth>el.clientWidth+4)return true;
       const key=Object.keys(el).find(k=>k.startsWith('__reactProps$')),props=key&&el[key];
@@ -136,7 +137,7 @@
   `;
   function refreshProfileOverlay(){
     const main=document.getElementById('main');
-    let next=['/discover','/browse','/visitors','/likes','/likes/sent'].includes(location.pathname)?main?.querySelector('.fixed.inset-0.overflow-y-auto.overscroll-contain'):null;
+    let next=['/discover','/browse','/visitors','/likes','/likes/sent','/likes/secret'].includes(location.pathname)?main?.querySelector('.fixed.inset-0.overflow-y-auto.overscroll-contain'):null;
     if(next&&!next.querySelector('.sticky button'))next=null;
     if(!next&&location.pathname==='/discover'&&new URL(location.href).searchParams.has('u'))next=document.querySelector('[data-dialog] .dialog-panel[role="dialog"]');
     overlay=next;

@@ -48,6 +48,7 @@
       '--border':rgb(isDark?blend(surface,[170,170,170],.25):blend(surface,[110,110,110],.19)),'--border-a':'1','--line':rgb(foreground),
       '--primary':rgb(primary),'--primary-fg':rgb(primaryFg),'--primary-soft':rgb(blend(surface,primary,isDark?.15:.09)),
       '--accent':rgb(accent),'--accent-fg':rgb(primaryFg),'--mark':rgb(primary),'--ring':rgb(primary),
+      '--secret':rgb(accent),'--secret-fg':rgb(primaryFg),'--secret-soft':rgb(blend(surface,accent,isDark?.2:.12)),
       '--danger':rgb(mono?(isDark?[219,219,219]:[66,66,66]):(isDark?[253,164,175]:[190,18,60])),
       '--success':rgb(mono?(isDark?[187,187,187]:[74,74,74]):(isDark?[134,239,172]:[21,128,61])),
       '--warning':rgb(mono?(isDark?[201,201,201]:[92,92,92]):(isDark?[253,211,77]:[161,98,7])),

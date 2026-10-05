@@ -2,6 +2,11 @@
   'use strict';
   if (location.origin !== 'https://erp.sex') return;
   const viewportValue = 'width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover';
+  window.__vrcrpOwnsPointerPress=el=>{
+    if(!el?.matches('button,[role="button"]'))return false;
+    const key=Object.keys(el).find(k=>k.startsWith('__reactProps$')),props=key&&el[key];
+    return typeof props?.onPointerDown==='function'&&typeof props?.onPointerUp==='function'&&typeof props?.onPointerCancel==='function'&&(el.classList.contains('touch-none')||getComputedStyle(el).touchAction==='none');
+  };
   const css = `
     html, body { touch-action: manipulation; }
     * { -webkit-user-select: none !important; user-select: none !important; -webkit-touch-callout: none !important; }

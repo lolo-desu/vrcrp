@@ -2,12 +2,12 @@
   'use strict';
   const bridge = window.webkit?.messageHandlers?.erpNativeApp;
   if (window !== window.top || location.origin !== 'https://erp.sex' || !bridge) return;
-  const tabPages = new Set(['/', '/discover', '/browse', '/likes', '/likes/sent', '/matches', '/posts', '/me']);
+  const tabPages = new Set(['/', '/discover', '/browse', '/likes', '/likes/sent', '/likes/secret', '/matches', '/posts', '/me']);
   const roots = new Set([...tabPages, '/login', '/register'].filter(path=>path!=='/browse'));
-  const topPages = new Set(['/', '/discover', '/likes', '/likes/sent', '/matches', '/posts', '/me']);
+  const topPages = new Set(['/', '/discover', '/likes', '/likes/sent', '/likes/secret', '/matches', '/posts', '/me']);
   const chatPath = path => /^\/matches\/[^/]+\/?$/.test(path);
   window.__vrcrpIsTopPage = path => topPages.has(path);
-  const refreshable = new Set(['/likes', '/likes/sent', '/matches', '/posts', '/visitors', '/notifications']);
+  const refreshable = new Set(['/likes', '/likes/sent', '/likes/secret', '/matches', '/posts', '/visitors', '/notifications']);
   const css = `
     html[data-vrcrp-app="true"] .app-top {
       background: rgb(var(--surface)) !important;
@@ -24,6 +24,9 @@
     html[data-vrcrp-app="true"] [data-vrcrp-passive-touch="true"] { touch-action: manipulation !important; }
     [data-vrcrp-swipe-group="true"] { max-width: min(100%, var(--vrcrp-swipe-width)) !important; }
     [data-vrcrp-swipe-actions="true"] > * { flex-shrink: 0 !important; }
+    /* Row/group menu anchors use transforms and create stacking contexts. */
+    #main li:has([aria-haspopup="menu"][aria-expanded="true"]),
+    #main section.card:has([aria-haspopup="menu"][aria-expanded="true"]) { position:relative; z-index:41; }
     #vrcrp-page-placeholder { position:fixed; inset:0; z-index:47; overflow:hidden; background:rgb(var(--bg, 245 245 245)); color:rgb(var(--fg, 35 35 35)); pointer-events:none; }
     #vrcrp-page-placeholder { display:flex; flex-direction:column; box-sizing:border-box; height:var(--vrcrp-viewport-height,100dvh); }
     .vr-page-top { flex-shrink:0; height:56px; display:flex; align-items:center; gap:12px; padding:0 16px; background:rgb(var(--surface,255 255 255)); border-bottom:1px solid rgb(var(--border,230 232 236)); }
@@ -147,13 +150,23 @@
     const r = stage.getBoundingClientRect(), parent = group.getBoundingClientRect();
     if (r.width <= 0 || r.height <= 0) return;
     const height = parseFloat(document.documentElement.style.getPropertyValue('--vrcrp-viewport-height')) || innerHeight;
-    const gap = parseFloat(getComputedStyle(actions).columnGap) || 0;
-    const intrinsic = [...actions.children].reduce((sum, el) => sum + el.getBoundingClientRect().width, 0) + gap * Math.max(0, actions.children.length - 1);
     const tail = parent.height - r.height;
     const room = height - navHeight - 12 - (r.top + scrollY) - tail;
-    const width = Math.min(r.width, Math.max(210, intrinsic, room * r.width / r.height));
+    // The buttons retain their own widths and stay centered even when their
+    // row is wider than the card. Their span must not set a minimum card height.
+    const width = Math.min(r.width, Math.max(210, room * r.width / r.height));
     setProperty('--vrcrp-swipe-width', `${Math.round(width * 100) / 100}px`);
     group.dataset.vrcrpSwipeGroup = 'true';
+    // The new hold hint may wrap after the card narrows. Recheck that actual
+    // layout so its extra line and the progress rings stay above the tab bar.
+    const bottom = height - navHeight - 12;
+    for (let i = 0; i < 3; i++) {
+      const card = stage.getBoundingClientRect();
+      const overflow = group.getBoundingClientRect().bottom + scrollY - bottom;
+      if (overflow <= 0.5 || card.width <= 210.5) break;
+      const fitted = Math.max(210, card.width - overflow * card.width / card.height);
+      setProperty('--vrcrp-swipe-width', `${Math.floor(fitted * 100) / 100}px`);
+    }
   }
   function renderedSurface(element) {
     const height = parseFloat(document.documentElement.style.getPropertyValue('--vrcrp-viewport-height')) || innerHeight;
@@ -192,6 +205,7 @@
     // Clickable photos and ordinary buttons do not own a horizontal gesture.
     // A protected zone must actually scroll/drag horizontally, or edit text.
     const elements=new Set(main.querySelectorAll('.stage,.cursor-grab,.snap-x,[role="slider"],[role="scrollbar"],input,textarea,select,[contenteditable]:not([contenteditable="false"]),video[controls]'));
+    for(const el of main.querySelectorAll('button.touch-none,[role="button"].touch-none'))if(window.__vrcrpOwnsPointerPress?.(el))elements.add(el);
     const visible=new Set();
     for(let x=0;x<5;x++)for(let y=0;y<9;y++){
       let el=document.elementFromPoint((x+.5)*innerWidth/5,(y+.5)*innerHeight/9);
@@ -213,8 +227,9 @@
       // touch-action alone (often applied to ordinary media) is insufficient.
       const customDrag=framerDrag||(style.touchAction==='pan-y'||style.touchAction==='none'||el.hasAttribute('data-vrcrp-passive-touch'))&&
         (el.draggable===true&&!el.matches('img,a')||typeof props?.onPointerMove==='function'||typeof props?.onTouchMove==='function');
-      if(horizontal||customDrag)elements.add(el);
-      const ownsGesture=horizontal||customDrag||el.matches('.stage,.cursor-grab,.snap-x,[role="slider"],[role="scrollbar"],input,textarea,select,video,canvas,[contenteditable]:not([contenteditable="false"])');
+      const ownsPress=window.__vrcrpOwnsPointerPress?.(el);
+      if(horizontal||customDrag||ownsPress)elements.add(el);
+      const ownsGesture=horizontal||customDrag||ownsPress||el.matches('.stage,.cursor-grab,.snap-x,[role="slider"],[role="scrollbar"],input,textarea,select,video,canvas,[contenteditable]:not([contenteditable="false"])');
       if(ownsGesture){if(el.hasAttribute('data-vrcrp-passive-touch'))el.removeAttribute('data-vrcrp-passive-touch');}
       else if(style.touchAction==='none'&&!el.hasAttribute('data-vrcrp-passive-touch'))el.dataset.vrcrpPassiveTouch='true';
     }
@@ -291,7 +306,7 @@
   window.__vrcrpEntryKey=entryKey;
   let placeholder=null, presentation=null, departedMain=null, departedNodes=[], departedText='', domVersion=0, paintMemo=null;
   const loadingSelector='.animate-spin,[role="progressbar"],[aria-busy="true"],.loading,[data-loading="true"],[role="status"]';
-  const rawPageTitle=path=>/^\/matches\//.test(path)?'聊天':/^\/profile\/edit/.test(path)?'编辑名片':/^\/u\//.test(path)?'个人资料':/^\/posts\//.test(path)?'帖子':({'/matches':'配对','/likes':'喜欢','/likes/sent':'喜欢','/posts':'广场','/notifications':'通知','/visitors':'访客','/me':'我的','/discover':'探索','/browse':'排行榜','/login':'登录','/register':'注册','/settings':'设置','/settings/privacy':'隐私','/settings/notifications':'通知设置','/settings/appearance':'外观','/settings/account':'账号','/settings/energy':'能量','/settings/membership':'会员'})[path]||(/^\/settings/.test(path)?'设置':'详情');
+  const rawPageTitle=path=>/^\/matches\//.test(path)?'聊天':/^\/profile\/edit/.test(path)?'编辑名片':/^\/u\//.test(path)?'个人资料':/^\/posts\//.test(path)?'帖子':({'/matches':'配对','/likes':'喜欢我的人','/likes/sent':'我喜欢的人','/likes/secret':'我悄悄喜欢的人','/posts':'广场','/notifications':'通知','/visitors':'访客','/me':'我的','/discover':'探索','/browse':'排行榜','/login':'登录','/register':'注册','/settings':'设置','/settings/privacy':'隐私','/settings/notifications':'通知设置','/settings/appearance':'外观','/settings/account':'账号','/settings/energy':'能量','/settings/membership':'会员'})[path]||(/^\/settings/.test(path)?'设置':'详情');
   const translated=text=>window.__vrcrpPageTemplates?.label(text)||text;
   const pageTitle=path=>translated(rawPageTitle(path));
   const skeletonBlock=(width='100%',height=12,extra='')=>`<div data-vrcrp-shape class="vr-page-block ${extra}" style="width:${width};height:${height}px"></div>`;
@@ -303,6 +318,9 @@
   // the site. Static controls are real controls with interaction suppressed.
   const buttonBase='btn inline-flex items-center justify-center gap-2 font-semibold rounded-ctl select-none whitespace-nowrap border border-transparent transition-[filter,background-color,box-shadow,transform] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-bg active:scale-[.98] disabled:opacity-45 disabled:pointer-events-none';
   const iconPaths={
+    search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+    down:'<path d="m6 9 6 6 6-6"/>',
+    undo:'<path d="M3 7v6h6"/><path d="M3 13a9 9 0 1 0 3-7"/>',
     back:'<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>',
     image:'<path d="M16 5h6"/><path d="M19 2v6"/><path d="M21 11.5V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7.5"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/><circle cx="9" cy="9" r="2"/>',
     mic:'<path d="M12 19v3"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><rect x="9" y="2" width="6" height="13" rx="3"/>',
@@ -319,24 +337,30 @@
   const fixedButton=(label,variant='outline',name='')=>`<button data-vrcrp-shape type="button" tabindex="-1" class="${buttonBase} btn-${variant} ${variant==='primary'?'bg-primary text-primary-fg':variant==='secondary'?'bg-surface2 text-fg':'border-border bg-surface text-fg'} h-8 px-3 text-xs">${name?icon(name,16):''}${fixedText(label)}</button>`;
   const skeletonTabs=(path=location.pathname)=>{
     if(/^\/profile\/edit/.test(path))return `<nav data-vrcrp-shape class="scrollbar-none -mx-3 flex gap-1 overflow-x-auto px-3 lg:mx-0 lg:flex-col lg:overflow-visible lg:px-0 mb-4">${['basics','photos','vrc','identity','bio','models','questionnaire','preferences','adult','links'].map((key,i)=>`<span data-vrcrp-shape class="shrink-0 rounded-ctl px-3 py-2 text-sm font-medium ${path.endsWith('/'+key)||i===0&&!path.match(/edit\/./)?'bg-primary text-primary-fg':'text-muted'}">${fixedText(window.__vrcrpPageTemplates?.translate('editor','sections.'+key,{'basics':'基本资料','photos':'照片','vrc':'VRChat','identity':'身份','bio':'简介','models':'模型','questionnaire':'问卷','preferences':'偏好','adult':'成人','links':'链接'}[key]))}</span>`).join('')}</nav>`;
-    const items=path==='/matches'?['聊天中','已结束']:/^\/profile\/edit/.test(path)?['基本资料','照片','简介','偏好']:['收到的喜欢','发出的喜欢','访客'];
-    const selected=path==='/likes/sent'?1:path==='/visitors'?2:/\/photos$/.test(path)?1:/\/(?:bio|about)$/.test(path)?2:0;
+    const items=path==='/matches'?['聊天中','已结束']:['喜欢我','我喜欢的','我悄悄喜欢的','访客'];
+    const selected=path==='/likes/sent'?1:path==='/likes/secret'?2:path==='/visitors'?3:0;
     return `<nav data-vrcrp-shape class="scrollbar-none flex gap-1 overflow-x-auto border-b border-border mb-4" role="tablist">${items.map((t,i)=>`<button data-vrcrp-shape type="button" tabindex="-1" role="tab" aria-selected="${i===selected}" class="relative -mb-px inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap border-b-2 px-3 pb-2.5 pt-2 text-sm font-semibold ${i===selected?'border-primary text-fg':'border-transparent text-muted'}">${fixedText(t)}</button>`).join('')}</nav>`;
   };
   const chatComposer=()=>skeletonCard(`${iconButton('image','发送图片')}${iconButton('mic','录制语音')}<textarea data-vrcrp-shape rows="1" readonly tabindex="-1" placeholder="${htmlText(translated('输入消息…'))}" class="input !rounded-2xl resize-y leading-relaxed max-h-32 min-h-[40px] flex-1 resize-none border-0 bg-transparent focus:ring-0" style="min-width:0"></textarea>${iconButton('send','发送',true)}`,'vr-page-compose',false)+`<p data-vrcrp-shape data-vrcrp-fixed-text="true" class="mt-1 text-center text-[11px] text-muted vr-page-note-line">${htmlText(translated('聊天记录存在这个浏览器。'))}</p>`;
 
   const skeletonTiles=(n=4)=>`<div class="vr-page-grid">${Array.from({length:n},()=>skeletonCard(skeletonBlock('100%',0,'vr-page-media')+`<div class="vr-page-tile-label">${skeletonBlock('64%')}${skeletonBlock('86%',8)}</div>`,'vr-page-tile',false).replace('height:0px','')).join('')}</div>`;
   const skeletonBubbles=()=>[62,74,48,68].map((w,i)=>`<div data-vrcrp-shape class="vr-page-bubble ${i%2?'bubble-me':'bubble-them'}" style="width:${w}%">${skeletonBlock('84%')}${i===1?skeletonBlock('64%'):''}${skeletonBlock('26%',6)}</div>`).join('');
+  function chatPreferences(){try{return JSON.parse(localStorage.getItem('erp_prefs')||'{}').state||{};}catch{return {};}}
   function skeletonBody(path,fragment=false){
     if(/^\/matches\//.test(path))return fragment?skeletonBubbles():skeletonCard(skeletonBubbles(),'vr-page-chat-pane',false)+chatComposer();
-    if(['/likes','/likes/sent','/browse'].includes(path))return (path==='/browse'?'':skeletonTabs(path))+skeletonTiles(6);
+    if(['/likes','/likes/sent','/likes/secret','/browse'].includes(path))return (path==='/browse'?'':skeletonTabs(path))+skeletonTiles(6);
     if(path==='/settings')return skeletonCard(['账号','内容设置','隐私','通知','VRChat','会员','能量','邀请','语言','黑名单','处罚记录'].map((label,i)=>`<div class="vr-page-row" style="padding:16px"><span data-vrcrp-shape class="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-primary-soft text-primary">${icon(['user-cog','eye','lock','bell','gamepad-2','crown','zap','gift','globe','shield-ban','scale'][i])}</span><span class="min-w-0 flex-1">${fixedText(label,'font-semibold')}${skeletonBlock('70%',8)}</span>${icon('next',16)}</div>`).join(''),'vr-page-list',false);
     if(['/matches','/notifications','/visitors'].includes(path)){
       const size=path==='/matches'?52:path==='/notifications'?36:40;
-      return (path==='/matches'||path==='/visitors'?skeletonTabs(path):'')+skeletonCard(Array.from({length:6},()=>skeletonRow(size)).join(''),'vr-page-list'+(path==='/notifications'||path==='/settings'?' vr-page-menu':''),false);
+      const search=path==='/matches'?`<div data-vrcrp-shape class="relative mb-4"><span class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted">${icon('search',16)}</span><input data-vrcrp-shape class="input w-full pl-9 pr-9" readonly tabindex="-1" placeholder="${htmlText(translated('搜索配对的人'))}" aria-label="${htmlText(translated('搜索配对的人'))}" maxlength="50"></div>`:'';
+      if(path==='/matches'&&chatPreferences().chatView==='groups'){
+        const prefs=chatPreferences(),groups=window.__vrcrpSiteCache?.chatGroups?.()||[];
+        return search+`<div class="space-y-3">${[{id:'default',label:'默认分组'},...groups.map(g=>({id:g.id})),{id:'unmatched',label:'已结束'}].map(g=>skeletonCard(`<div class="flex items-center pr-2"><div class="flex min-w-0 flex-1 items-center gap-2 px-3 py-3 text-left">${icon((prefs.chatOpenGroups||['default']).includes(g.id)?'down':'next',16)}<span class="min-w-0 flex-1 font-semibold">${g.label?fixedText(g.label):skeletonBlock('112px',14)}</span>${skeletonBlock('18px',12)}</div></div>`+((prefs.chatOpenGroups||['default']).includes(g.id)?`<div class="border-t border-border">${Array.from({length:3},()=>skeletonRow(52)).join('')}</div>`:''),'overflow-visible',false)).join('')}${fixedButton('新增分组','secondary')}</div>`;
+      }
+      return search+(path==='/matches'||path==='/visitors'?skeletonTabs(path):'')+skeletonCard(Array.from({length:6},()=>skeletonRow(size)).join(''),'vr-page-list'+(path==='/notifications'||path==='/settings'?' vr-page-menu':''),false);
     }
     if(/^\/u\//.test(path))return skeletonCard(skeletonBlock('100%',0,'vr-page-media').replace('height:0px','')+`<div class="vr-page-tile-label">${skeletonBlock('48%',20)}${skeletonBlock('74%')}${skeletonBlock('56%',8)}</div>`,'vr-page-card vr-page-hero',false)+skeletonCard(skeletonBlock('38%',16)+skeletonBlock('96%')+skeletonBlock('84%')+skeletonBlock('68%'));
-    if(path==='/discover'||path==='/')return `<div class="vr-page-swipe">`+skeletonCard(skeletonBlock('100%',0,'vr-page-media').replace('height:0px','')+`<div class="vr-page-tile-label">${skeletonBlock('54%',20)}${skeletonBlock('78%')}</div>`,'vr-page-card vr-page-hero',false)+`<div class="vr-page-actions" style="justify-content:center">${['x','star','heart'].map(n=>`<div data-vrcrp-shape class="card grid place-items-center rounded-full" style="width:60px;height:60px">${icon(n,28)}</div>`).join('')}</div></div>`;
+    if(path==='/discover'||path==='/')return `<div class="vr-page-swipe">`+skeletonCard(skeletonBlock('100%',0,'vr-page-media').replace('height:0px','')+`<div class="vr-page-tile-label">${skeletonBlock('54%',20)}${skeletonBlock('78%')}</div>`,'vr-page-card vr-page-hero',false)+`<div class="mt-5 flex items-center justify-center gap-3.5">${[['undo',44],['x',64],['star',56],['heart',64]].map(([n,size])=>`<div data-vrcrp-shape class="act grid place-items-center rounded-full border border-border bg-surface ${n==='heart'?'!border-transparent !bg-primary text-primary-fg':n==='star'?'text-accent':'text-muted'}" style="width:${size}px;height:${size}px;flex-shrink:0">${icon(n,n==='undo'?18:n==='star'?24:28)}</div>`).join('')}</div><p data-vrcrp-shape class="mt-3 grid px-2 text-center text-xs text-muted">${fixedText('长按 ♥ 或 ★ 可以悄悄喜欢，对方要等你们配对才知道。')}</p></div>`;
     if(path==='/me')return skeletonCard(skeletonBlock('100%',128,'vr-page-cover')+`<div style="padding:20px">${skeletonRow(64)}${skeletonBlock('100%',8)}${skeletonBlock('54%')}</div>`,'vr-page-card',false)+skeletonCard(Array.from({length:5},()=>skeletonRow(36)).join(''),'vr-page-list',false);
     if(path==='/posts')return `<div class="mb-3 flex flex-wrap items-center justify-between gap-2">${segmented(['全部','我的'])}${segmented(['综合','最新','热门'])}</div><div class="mb-4 flex flex-wrap items-center gap-2">${fixedButton('分类') }<div data-vrcrp-shape class="input flex-1 h-8">${fixedText('搜索帖子','text-muted text-sm')}</div></div>`+`<div class="vr-page-feed">${Array.from({length:3},()=>skeletonCard(skeletonBlock('100%',0,'vr-page-media').replace('height:0px','')+`<div style="padding:16px">${skeletonRow(32)}${skeletonBlock('94%')}${skeletonBlock('68%')}<div class="vr-page-actions">${['heart','more','send'].map(n=>iconButton(n,n)).join('')}</div></div>`,'vr-page-card vr-page-post',false)).join('')}</div>`;
     if(/^\/posts\/(?:new|[^/]+\/edit)/.test(path))return skeletonCard(skeletonBlock('38%')+skeletonCard(skeletonBlock('78%'),'vr-page-input',false)+skeletonBlock('100%',180,'vr-page-media')+skeletonBlock('100%',44));
@@ -395,9 +419,14 @@
       back.addEventListener('click',()=>{if(!window.__vrcrpBack?.()&&chat)window.__vrcrpOpenRoot?.('/matches');});(chat?top:heading).append(back);
     }
     const title=document.createElement('span');title.className='vr-page-title page-title display truncate text-2xl sm:text-[28px]';title.dataset.vrcrpShape='';title.dataset.vrcrpFixedText='true';title.textContent=pageTitle(path);heading.append(title);
+    if(path==='/likes/secret'){
+      const labels=document.createElement('div');labels.className='min-w-0 flex-1';heading.replaceChildren(labels);labels.append(title);
+      labels.insertAdjacentHTML('beforeend',`<p class="mt-1 text-sm text-muted">${fixedText('对方还看不到这些喜欢，配对后才会知道。')}</p>`);
+    }
     if(path==='/browse'||/^\/profile\/edit/.test(path)){heading.className='mb-4 flex flex-wrap items-center gap-3';title.className='vr-page-title text-xl font-extrabold';}
     if(path==='/discover'||path==='/'){heading.insertAdjacentHTML('beforeend',`<div class="ml-auto flex shrink-0 items-center gap-2">${fixedButton('','secondary','grid')}${fixedButton('筛选','outline','filter')}</div>`);}
     if(path==='/posts')heading.insertAdjacentHTML('beforeend',`<div class="ml-auto">${fixedButton('发布','primary')}</div>`);
+    if(path==='/matches')heading.insertAdjacentHTML('beforeend',`<div class="ml-auto">${fixedButton(chatPreferences().chatView==='groups'?'分组':'最近对话','outline','down')}</div>`);
     if(/^\/profile\/edit/.test(path))heading.insertAdjacentHTML('beforeend',`<div class="ml-auto">${fixedButton('预览')}</div>`);
     if(chat)top.insertAdjacentHTML('beforeend',skeletonBlock('40px',40,'vr-page-avatar')+`<div class="vr-page-lines">${skeletonBlock('112px',14)}${skeletonBlock('74px',8)}</div>${iconButton('more','更多')}`);
     else {const real=window.__vrcrpPageTemplates?.header?.();if(real){top.replaceChildren(...real.childNodes);top.className=real.className;top.style.cssText=real.style.cssText;top.style.flexShrink='0';}else top.innerHTML=fixedText('vrcrp','font-semibold')+`<div class="vr-page-end">${icon('more')}</div>`;}

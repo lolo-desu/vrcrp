@@ -199,7 +199,7 @@
     clearTimeout(pollTimer);
     if (!userId || !active || document.hidden) return;
     if (busy) { if(delay<=350)syncAgain=true; return; }
-    pollTimer = setTimeout(async () => { await sync(); const urgent=syncAgain;syncAgain=false; schedule(Math.max(retryDelay,urgent?200:['/matches','/notifications','/me','/likes','/visitors'].includes(location.pathname)?2000:/^\/matches\/[^/]+$/.test(location.pathname)?4000:5000)); }, delay);
+    pollTimer = setTimeout(async () => { await sync(); const urgent=syncAgain;syncAgain=false; schedule(Math.max(retryDelay,urgent?200:['/matches','/notifications','/me','/likes','/likes/sent','/likes/secret','/visitors'].includes(location.pathname)?2000:/^\/matches\/[^/]+$/.test(location.pathname)?4000:5000)); }, delay);
   }
   window.__vrcrpSyncChats = () => schedule(0);
   window.__vrcrpAppActive = value => { active = value === true;window.__vrcrpForeground=active;window.__vrcrpRefreshNotificationReads?.(); window.__vrcrpSiteCache?.active(active); if (active) schedule(0); else clearTimeout(pollTimer); };

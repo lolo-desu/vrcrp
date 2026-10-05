@@ -13,12 +13,12 @@ if not css_path.exists():
  css_path.parent.mkdir(parents=True,exist_ok=True)
  subprocess.run(['curl','-fsSL','--max-time','30','-A','Mozilla/5.0','-o',str(css_path),'https://erp.sex/assets/index-DR3a8T5X.css'],check=True)
 css=css_path.read_text()
-paths=['/matches','/matches/thread','/likes','/likes/sent','/visitors','/notifications','/browse','/discover','/me','/u/peer','/posts','/posts/post','/posts/new','/profile/edit','/profile/edit/photos','/profile/edit/bio','/settings','/settings/privacy','/settings/notifications','/settings/appearance','/settings/energy','/settings/membership','/settings/language','/settings/blocks','/settings/login-methods','/login','/register']
+paths=['/matches','/matches/thread','/likes','/likes/sent','/likes/secret','/visitors','/notifications','/browse','/discover','/me','/u/peer','/posts','/posts/post','/posts/new','/profile/edit','/profile/edit/photos','/profile/edit/bio','/settings','/settings/privacy','/settings/notifications','/settings/appearance','/settings/energy','/settings/membership','/settings/language','/settings/blocks','/settings/login-methods','/login','/register']
 reports=[]
 with sync_playwright() as p:
  for engine in ['chromium','webkit']:
   options={'headless':True}
-  if engine=='chromium':options.update(executable_path='/usr/bin/chromium',args=['--no-sandbox'])
+  if engine=='chromium':options.update(executable_path=os.environ.get('CHROMIUM_PATH','/usr/bin/chromium'),args=['--no-sandbox'])
   browser=getattr(p,engine).launch(**options)
   for preset,scheme in [('pop','light'),('pop','dark'),('clean','light')]:
    page=browser.new_page(viewport={'width':393,'height':793},is_mobile=True,has_touch=True)

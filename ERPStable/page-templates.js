@@ -10,8 +10,14 @@
   const dictionaries=new Map(),staticLabels=new Set();let labelsFlight=null,labelEpoch=0;
   const normalized=s=>s.replace(/\s+/g,' ').trim();
   const labelKeys={'配对':'chat.list.title','聊天中':'chat.list.active','已结束':'chat.list.closed','输入消息…':'chat.placeholder','发送图片':'chat.attachImage','录制语音':'chat.voice.record','喜欢':'discover.likes.title','收到的喜欢':'discover.likes.tab','发出的喜欢':'discover.likesSent.tab','访客':'discover.visitors.tab','探索':'discover.title','筛选':'discover.filters.title','广场':'posts.title','发布':'posts.new','全部':'posts.all','我的':'posts.mine','综合':'posts.sortMix','最新':'posts.sortNew','热门':'posts.sortHot','搜索帖子':'posts.search','分类':'posts.category','编辑名片':'editor.title','预览':'editor.preview','基本资料':'editor.sections.basics','照片':'editor.sections.photos','简介':'editor.sections.bio','偏好':'editor.sections.preferences','设置':'settings.index.title','隐私':'settings.index.privacy','通知':'settings.index.notifications','账号':'settings.index.account','内容设置':'settings.index.content','会员':'settings.index.membership','能量':'settings.index.energy','邀请':'settings.index.invite','语言':'settings.index.language','黑名单':'settings.index.blocks','处罚记录':'settings.index.sanctions','登录':'auth.login.submit','注册':'auth.register.submit','邮箱':'auth.email','密码':'auth.password','昵称':'editor.basics.displayName','保存':'common.action.save'};
+  Object.assign(labelKeys,{'喜欢我的人':'discover.likes.title','我喜欢的人':'discover.likesSent.title','我悄悄喜欢的人':'discover.likesSecret.title','喜欢我':'discover.likes.tab','我喜欢的':'discover.likesSent.tab','我悄悄喜欢的':'discover.likesSecret.tab','对方还看不到这些喜欢，配对后才会知道。':'discover.likesSecret.subtitle','默认分组':'chat.groups.default','新增分组':'chat.groups.new','搜索配对的人':'chat.list.search','最近对话':'chat.list.viewRecent','分组':'chat.list.viewGroups','长按 ♥ 或 ★ 可以悄悄喜欢，对方要等你们配对才知道。':'discover.secret.hint'});
   function translate(ns,key,fallback){const d=dictionaries.get(ns);let v=d;for(const part of key.split('.'))v=v?.[part];return typeof v==='string'&&!v.includes('{{')?v:fallback;}
-  function label(text){if(/^聊天[記记][錄录]存在[這这][個个][瀏浏][覽览]器[。.]?$/.test(text))return '';if(window.__vrcrpLanguage?.current()==='zh-Hans')return window.__vrcrpToSimplified(text);const key=labelKeys[text];if(!key)return text;const dot=key.indexOf('.');return translate(key.slice(0,dot),key.slice(dot+1),text);}
+  function label(text){
+    if(/^聊天[記记][錄录]存在[這这][個个][瀏浏][覽览]器[。.]?$/.test(text))return '';
+    const key=labelKeys[text],dot=key?.indexOf('.');
+    const value=key?translate(key.slice(0,dot),key.slice(dot+1),text):text;
+    return window.__vrcrpLanguage?.current()==='zh-Hans'?window.__vrcrpToSimplified(value):value;
+  }
   async function loadLabels(){
     if(labelsFlight)return labelsFlight;
     const asset=document.querySelector('script[type="module"][src*="/assets/index-"]')?.src;if(!asset)return;
@@ -36,9 +42,9 @@
   const rect = e => {const r=e.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height};};
   function context() {
     const r=document.documentElement,s=getComputedStyle(r);
-    let locale='';try{locale=localStorage.getItem('erp_locale')||'';}catch{}
+    let locale='',chatView='';try{locale=localStorage.getItem('erp_locale')||'';const prefs=JSON.parse(localStorage.getItem('erp_prefs')||'{}').state||{};chatView=JSON.stringify([prefs.chatView,prefs.chatOpenGroups,prefs.chatGroup]);}catch{}
     return [innerWidth,innerHeight,r.lang,locale,r.dataset.preset,r.dataset.scheme,r.dataset.vrcrpPalette,
-      ...['--surface','--bg','--fg','--primary','--radius-card'].map(k=>s.getPropertyValue(k))].join('|');
+      chatView,...['--surface','--bg','--fg','--primary','--radius-card'].map(k=>s.getPropertyValue(k))].join('|');
   }
   function family(path) {
     if(/^\/matches\/[^/]+$/.test(path))return '/matches/:thread';
