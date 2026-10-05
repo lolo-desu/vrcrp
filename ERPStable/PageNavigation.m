@@ -177,7 +177,11 @@
 }
 - (void)fadeRowFeedback {
     if(!self.rowFeedback||self.pressDeadline<=0)return;
-    NSUInteger owner=++self.pressGeneration;NSTimeInterval delay=MAX(0,self.pressDeadline-NSDate.date.timeIntervalSinceReferenceDate-.10);
+    NSUInteger owner=++self.pressGeneration;
+    // A departing row belongs to the push presentation. Its lifetime cannot
+    // depend on a timer that may expire while WebKit measures the next page.
+    if(self.transitioning&&[self.pressedEntry isEqual:self.previewKey])return;
+    NSTimeInterval delay=MAX(0,self.pressDeadline-NSDate.date.timeIntervalSinceReferenceDate-.10);
     dispatch_after(dispatch_time(DISPATCH_TIME_NOW,(int64_t)(delay*NSEC_PER_SEC)),dispatch_get_main_queue(),^{
         if(owner!=self.pressGeneration)return;UIView *feedback=self.rowFeedback;
         [UIView animateWithDuration:.10 delay:0 options:UIViewAnimationOptionAllowUserInteraction animations:^{feedback.alpha=0;} completion:^(BOOL finished){if(owner==self.pressGeneration)[self clearRowFeedback];}];
@@ -387,7 +391,7 @@
         [self.web.superview insertSubview:self.underlay aboveSubview:self.web];
         // Press feedback belongs only to this departing presentation. Cached
         // parent images remain clean, so returning cannot restore a selection.
-        if([self.pressedEntry isEqual:oldKey]&&!CGRectIsEmpty(self.pressedFrame)&&(!self.pressDeadline||self.pressDeadline>NSDate.date.timeIntervalSinceReferenceDate)){
+        if([self.pressedEntry isEqual:oldKey]&&!CGRectIsEmpty(self.pressedFrame)){
             self.rowFeedback=[[UIView alloc] initWithFrame:self.pressedFrame];self.rowFeedback.backgroundColor=self.pressedInk;self.rowFeedback.userInteractionEnabled=NO;
             [self.underlay insertSubview:self.rowFeedback belowSubview:self.shade];
             // Keep the departing row's feedback visible through this push,
@@ -404,7 +408,7 @@
         self.web.transform=CGAffineTransformIdentity;
         [UIView animateWithDuration:.24 delay:0 options:UIViewAnimationOptionCurveEaseOut|UIViewAnimationOptionAllowUserInteraction|UIViewAnimationOptionBeginFromCurrentState animations:^{
             self.outgoing.transform=CGAffineTransformIdentity;self.underlay.transform=CGAffineTransformMakeTranslation(-width*.27,0);self.shade.alpha=.2;
-        } completion:^(BOOL finished){if(generation!=self.generation)return;self.animationDone=YES;self.underlay.hidden=YES;[self holdCover:self.outgoing];}];
+        } completion:^(BOOL finished){if(generation!=self.generation)return;self.animationDone=YES;self.underlay.hidden=YES;[self clearRowFeedback];[self holdCover:self.outgoing];}];
     } else {
         [self clearRowFeedback];
         self.underlay.image=destinationImage;self.previewKey=key;

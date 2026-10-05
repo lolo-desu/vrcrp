@@ -880,7 +880,7 @@ static UIView *ERPFocusedView(UIView *view) {
         }
         [self.pageNavigation capture];
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW,500*NSEC_PER_MSEC),dispatch_get_main_queue(),^{
-            NSString *script=@"(()=>{window.fixtureSlowChat=true;const row=document.querySelector('[data-vrcrp-chat-row]'),r=row.getBoundingClientRect(),args={bubbles:true,button:0,isPrimary:true,pointerType:'touch',clientX:r.x+20,clientY:r.y+20};row.dispatchEvent(new PointerEvent('pointerdown',args));row.dispatchEvent(new PointerEvent('pointerup',args));row.click();})()";
+            NSString *script=@"(()=>{window.fixtureSlowChat=true;const row=document.querySelector('[data-vrcrp-chat-row]'),r=row.getBoundingClientRect(),args={bubbles:true,button:0,isPrimary:true,pointerType:'touch',clientX:r.x+20,clientY:r.y+20};row.dispatchEvent(new PointerEvent('pointerdown',args));row.dispatchEvent(new PointerEvent('pointerup',args));const until=performance.now()+380;while(performance.now()<until){}row.click();})()";
             [self.web evaluateJavaScript:script completionHandler:^(id ignored,NSError *error){
                 if(error){[self writeFeedbackFailure:error.localizedDescription];return;}
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW,400*NSEC_PER_MSEC),dispatch_get_main_queue(),^{[self writeFeedbackReport:@"cold-chat"];});
