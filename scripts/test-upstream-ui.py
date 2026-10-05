@@ -158,7 +158,10 @@ with sync_playwright() as p:
         # and the new hint fit above the original/native bottom bar.
         for width, height in [(320, 793), (375, 793), (393, 793), (393, 700)]:
             page.set_viewport_size({'width': width, 'height': height})
-            page.wait_for_timeout(250)
+            page.wait_for_function('''height=>{
+              const g=document.querySelector('#main .stage').parentElement,n=document.querySelector('.app-bottom');
+              return Math.abs(innerHeight-height)<1&&g.getBoundingClientRect().bottom<=n.getBoundingClientRect().top-10;
+            }''', arg=height, timeout=3000)
             fit = page.evaluate('''()=>{const a=document.querySelector('#main .act-pass').parentElement,
               g=document.querySelector('#main .stage').parentElement,n=document.querySelector('.app-bottom');
               return {bottom:g.getBoundingClientRect().bottom,nav:n.getBoundingClientRect().top,
@@ -166,6 +169,16 @@ with sync_playwright() as p:
                 touchZones:nativeMessages.filter(m=>m.kind==='gestureZones').at(-1)};}''')
             assert fit['bottom'] <= fit['nav'] - 10, (engine, width, height, fit)
             assert fit['buttons'] == [44, 64, 56, 64], fit
+        # An idle, wrapped hint must not cause an app-wide update loop. A
+        # delayed innerHeight also must not push actions under the actual bar.
+        page.evaluate("window.rootStyleWrites=0;window.rootStyleObserver=new MutationObserver(r=>rootStyleWrites+=r.length);rootStyleObserver.observe(document.documentElement,{attributes:true,attributeFilter:['style']})")
+        page.wait_for_timeout(500)
+        assert page.evaluate("rootStyleWrites") < 4, 'Idle hint layout repeatedly recomputed the app'
+        page.evaluate("rootStyleObserver.disconnect()")
+        page.evaluate("window.fixtureHeightDescriptor=Object.getOwnPropertyDescriptor(window,'innerHeight');Object.defineProperty(window,'innerHeight',{get:()=>793,configurable:true});window.dispatchEvent(new Event('resize'))")
+        page.evaluate("new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>requestAnimationFrame(resolve))))")
+        page.wait_for_function("document.querySelector('#main .stage').parentElement.getBoundingClientRect().bottom<=document.querySelector('.app-bottom').getBoundingClientRect().top-10")
+        page.evaluate("Object.defineProperty(window,'innerHeight',fixtureHeightDescriptor);delete window.fixtureHeightDescriptor")
         page.evaluate("__vrcrpTheme.select('mono')")
         assert page.evaluate("['secret','secret-fg','secret-soft'].every(k=>new Set(getComputedStyle(document.documentElement).getPropertyValue('--'+k).trim().split(/\\s+/)).size===1)")
         page.set_viewport_size({'width': 393, 'height': 793})

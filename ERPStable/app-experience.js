@@ -150,22 +150,32 @@
     const r = stage.getBoundingClientRect(), parent = group.getBoundingClientRect();
     if (r.width <= 0 || r.height <= 0) return;
     const height = parseFloat(document.documentElement.style.getPropertyValue('--vrcrp-viewport-height')) || innerHeight;
+    const nav = document.querySelector('.app-bottom');
+    // Fixed-position layout can already reflect the new iOS viewport while
+    // innerHeight is still stale. Fit against the bar actually on screen.
+    const bottom = (navHeight && nav ? nav.getBoundingClientRect().top + scrollY : height) - 12;
     const tail = parent.height - r.height;
-    const room = height - navHeight - 12 - (r.top + scrollY) - tail;
+    const room = bottom - (r.top + scrollY) - tail;
     // The buttons retain their own widths and stay centered even when their
     // row is wider than the card. Their span must not set a minimum card height.
     const width = Math.min(r.width, Math.max(210, room * r.width / r.height));
-    setProperty('--vrcrp-swipe-width', `${Math.round(width * 100) / 100}px`);
+    const setWidth = width => {
+      const value = `${Math.floor(width * 100) / 100}px`;
+      if (group.style.getPropertyValue('--vrcrp-swipe-width') !== value) group.style.setProperty('--vrcrp-swipe-width', value);
+    };
+    // The temporary measurements belong to this group. Mutating the root
+    // during each hint-wrap adjustment would reschedule the entire app on
+    // every frame even after its final geometry had stopped changing.
+    setWidth(width);
     group.dataset.vrcrpSwipeGroup = 'true';
     // The new hold hint may wrap after the card narrows. Recheck that actual
     // layout so its extra line and the progress rings stay above the tab bar.
-    const bottom = height - navHeight - 12;
     for (let i = 0; i < 3; i++) {
       const card = stage.getBoundingClientRect();
       const overflow = group.getBoundingClientRect().bottom + scrollY - bottom;
       if (overflow <= 0.5 || card.width <= 210.5) break;
       const fitted = Math.max(210, card.width - overflow * card.width / card.height);
-      setProperty('--vrcrp-swipe-width', `${Math.floor(fitted * 100) / 100}px`);
+      setWidth(fitted);
     }
   }
   function renderedSurface(element) {
@@ -843,6 +853,7 @@
     if (!ready || records.some(record => record.type !== 'attributes' || record.target === document.documentElement || record.target === document.body || record.target.closest?.('.app-bottom,.app-top,[role="dialog"],.dialog-panel') || record.attributeName === 'open')) schedule();
   }).observe(document, { subtree: true, childList: true, attributes: true, characterData: true, attributeFilter: ['class', 'style', 'aria-current', 'open', 'data-preset', 'data-theme', 'data-vrcrp-keyboard'] });
   window.addEventListener('resize', schedule);
+  window.visualViewport?.addEventListener('resize', schedule);
   window.addEventListener('scroll', schedule, { passive: true });
   let snapshotTimer;
   const snapshotSoon=()=>{clearTimeout(snapshotTimer);snapshotTimer=setTimeout(()=>post({kind:'viewUpdated',entryKey:entryKey()}),100);};
