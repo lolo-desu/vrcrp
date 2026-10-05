@@ -10,13 +10,28 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
+concurrency:
+  group: vrcrp-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   targets:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: write
     outputs:
       android: ${{ steps.platforms.outputs.android }}
     steps:
       - uses: actions/checkout@v4
+      - name: Cancel superseded builds without a concurrency group
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/build.yml/runs?branch=${GITHUB_REF_NAME}&status=in_progress" \
+            --jq ".workflow_runs[] | select(.run_number < ${GITHUB_RUN_NUMBER}) | .id" \
+            | while read -r SUPERSEDED_RUN; do
+                gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/runs/${SUPERSEDED_RUN}/cancel"
+              done
       - id: platforms
         run: |
           python3 - <<'PY'
