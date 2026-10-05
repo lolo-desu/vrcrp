@@ -664,7 +664,12 @@ static UIView *ERPFocusedView(UIView *view) {
         } else if ([kind isEqual:@"willNavigate"]) {
             if(!self.keyboardVisible&&!self.websiteOverlay&&!self.profileOverlay&&!self.rowPressed&&!self.pageNavigation.transitioning)[self.pageNavigation capture];
         } else if ([kind isEqual:@"pagePainted"]) {
-            NSString *key=body[@"entryKey"];if([key isKindOfClass:NSString.class]&&key.length<=180){[self.pageNavigation painted:key];[self captureSnapshot];if(self.recoveringContent){self.recoveringContent=NO;[self contentReady];}}
+            NSString *key=body[@"entryKey"];if([key isKindOfClass:NSString.class]&&key.length<=180){[self.pageNavigation painted:key];[self captureSnapshot];if(self.recoveringContent){
+                self.recoveringContent=NO;[self contentReady];
+#if ERP_TESTING
+                if([NSProcessInfo.processInfo.arguments containsObject:@"--verify-gestures"])[self.web evaluateJavaScript:@"window.__fixtureRecoveryComplete?.()" completionHandler:nil];
+#endif
+            }}
         } else if ([kind isEqual:@"routeSettled"]) {
             NSString *key=body[@"entryKey"];
             if([key isKindOfClass:NSString.class]&&key.length<=180){[self.pageNavigation settled:key];if(!self.keyboardVisible&&!self.websiteOverlay&&!self.profileOverlay&&!self.rowPressed)[self.pageNavigation capture];}

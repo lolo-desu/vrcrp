@@ -4,6 +4,7 @@
 </style></head><body><header class="app-top">触摸回归测试</header><main id="main"></main><script>
 if(!Number.isInteger(history.state?.idx))history.replaceState({idx:0,key:'gesture-root'},'',location.href);
 window.sheetCloses=0;window.sheetActions=0;let renderedPath=null;
+window.__fixtureRecoveryComplete=()=>{const badge=document.createElement('span');badge.textContent='页面已恢复';badge.style.cssText='position:fixed;bottom:12px;right:12px;pointer-events:none;background:white;color:black;font-size:10px;z-index:1000';document.body.appendChild(badge)};
 window.openPage=path=>{history.pushState({idx:(history.state?.idx||0)+1,key:Math.random().toString()},'',path+'?fixture=gestures');render()};
 function render(){const main=document.getElementById('main');const path=location.pathname;
 if(path===renderedPath){syncSheet();return;}renderedPath=path;window.scrollTo(0,0);

@@ -94,7 +94,7 @@ final class GestureChecks: XCTestCase {
     func testWebContentRecoveryRestoresUsablePage() {
         app.buttons["页面恢复测试"].tap()
         let recovering=app.staticTexts["正在恢复页面…"]
-        XCTAssertTrue(recovering.waitForExistence(timeout:4))
+        XCTAssertTrue(app.staticTexts["页面已恢复"].waitForExistence(timeout:12),"No painted-page recovery acknowledgment arrived")
         XCTAssertTrue(app.staticTexts["资料已就绪"].waitForExistence(timeout:12))
         let retry=app.buttons["重新连接"]
         let photo=app.buttons["资料照片"]
