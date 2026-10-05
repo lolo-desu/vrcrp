@@ -26,7 +26,7 @@
 bash scripts/build-unsigned.sh
 ```
 
-产物为 `build/ERPStable-unsigned.ipa`。没有 Mac 也可 Fork 仓库，在 Actions 手动运行 **Build vrcrp iOS and Android**，从 `vrcrp-web-unsigned` 构建产物中下载 IPA。
+产物为 `build/ERPStable-unsigned.ipa`。没有 Mac 也可 Fork 仓库，在 Actions 手动运行 **Build vrcrp**，从 `vrcrp-web-unsigned` 构建产物中下载 IPA。
 
 Android 需 JDK 17+、Android SDK 35，设置 `ANDROID_HOME` 后运行：
 
@@ -34,7 +34,7 @@ Android 需 JDK 17+、Android SDK 35，设置 `ANDROID_HOME` 后运行：
 bash scripts/build-android.sh
 ```
 
-产物为 `build/vrcrp-android.apk`。APK 使用开发签名；Actions 缓存签名文件，但缓存过期时签名可能变化。正式发行建议在 Gradle 中配置固定签名。两种平台均可通过仓库 Actions 构建。
+产物为 `build/vrcrp-android.apk`。APK 使用开发签名；Actions 缓存签名文件，但缓存过期时签名可能变化。正式发行建议在 Gradle 中配置固定签名。两种平台均可通过仓库 Actions 构建，发布平台由 `.github/release-platforms.json` 选择。
 
 ## 贡献
 
