@@ -152,6 +152,7 @@ jobs:
           TEST_NODE_MODULES="$PWD/build/verification-deps/node_modules" node scripts/test-live-cache.cjs
       - name: Verify current official frontend compatibility
         run: |
+          python3 scripts/test-keyboard-layout.py
           python3 scripts/fetch-upstream-ui.py --snapshot scripts/fixtures/upstream-20261005.zip
           python3 scripts/test-upstream-ui.py
           ORIGINAL_SITE_CSS="$PWD/build/upstream/$(python3 -c "import json; print(json.load(open('build/upstream/manifest.json'))['css'])")" python3 scripts/test-app-theme.py

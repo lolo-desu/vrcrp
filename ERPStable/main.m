@@ -910,10 +910,15 @@ static UIView *ERPFocusedView(UIView *view) {
     NSDictionary *step=steps[index];
     if(deadline==0){dispatch_block_t action=step[@"action"];if(action)action();deadline=NSDate.timeIntervalSinceReferenceDate+35;}
     NSString *condition=step[@"condition"]?:@"true";BOOL (^native)(void)=step[@"native"];
+    BOOL measuresViewport=[condition containsString:@"NATIVE_HEIGHT"];
+    CGSize viewportAtCheck=self.web.bounds.size;
     condition=[condition stringByReplacingOccurrencesOfString:@"NATIVE_HEIGHT" withString:[NSString stringWithFormat:@"%.3f",self.web.bounds.size.height]];
     condition=[condition stringByReplacingOccurrencesOfString:@"NATIVE_NAV_TOP" withString:[NSString stringWithFormat:@"%.3f",self.bottomNav.frame.origin.y-self.web.frame.origin.y]];
     void (^check)(id,NSError *)=^(id result,NSError *error){
-        if(!error&&[result isEqual:@YES]&&(!native||native())){
+        // A keyboard notification can resize UIKit while the WebKit reply is
+        // queued. Such a result measured the preceding viewport, not the
+        // current keyboard state, and must be checked again before capture.
+        if(!error&&[result isEqual:@YES]&&(!native||native())&&(!measuresViewport||CGSizeEqualToSize(viewportAtCheck,self.web.bounds.size))){
             // Keep recorded stable pages on screen long enough for a loaded
             // simulator's encoder to sample them. Rapid-return checks retain
             // their zero-delay sequence and exercise the real transition speed.

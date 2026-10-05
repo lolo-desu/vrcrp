@@ -3,7 +3,7 @@
   if (location.origin !== 'https://erp.sex') return;
   let viewport = null;
   let scheduled = false;
-  let messages = null, messageState = null;
+  let messages = null, messageState = null, keyboardAnchor = null;
   let resizePolicy=null,resizeTimer=null,resizeGeneration=0,resizeStarted=0;
   const resizeObserver = new ResizeObserver(() => update());
   function messagePane() {
@@ -19,15 +19,15 @@
     const pane = messagePane();
     if (pane === messages) return;
     if (messages) resizeObserver.unobserve(messages);
-    messages = pane; messageState = null; resizePolicy=null;clearTimeout(resizeTimer);resizeGeneration++;
+    messages = pane; messageState = null; keyboardAnchor=null;resizePolicy=null;clearTimeout(resizeTimer);resizeGeneration++;
     if (pane) { pane.style.overflowAnchor = 'none'; rememberMessages(); resizeObserver.observe(pane); }
   }
   function preserveMessages() {
     if (!messages || !messageState) return;
     const resized = messages.clientHeight !== messageState.height;
     const grown = messages.scrollHeight !== messageState.content;
-    const policy=resizePolicy||messageState;
-    if (resizePolicy || resized || grown && policy.bottom) {
+    const policy=resizePolicy||keyboardAnchor||messageState;
+    if (resizePolicy || keyboardAnchor || resized || grown && policy.bottom) {
       const top = policy.bottom ? Math.max(0, messages.scrollHeight - messages.clientHeight) : policy.top;
       const moved=Math.abs(messages.scrollTop - top) > .5;
       if (moved) messages.scrollTop = top;
@@ -42,11 +42,17 @@
     // the clamped scroll position as an intentional move away from the bottom.
     const actual=window.visualViewport?.height??innerHeight;
     if(viewport&&Math.abs(actual-viewport.height)>1&&performance.now()-resizeStarted<5000){resizeTimer=setTimeout(()=>endResize(owner),50);return;}
-    resizePolicy=null;rememberMessages();
+    resizePolicy=null;
+    if(!viewport?.keyboardVisible)keyboardAnchor=null;
+    rememberMessages();
   }
   function beginResize(){
     observeMessages();if(!messageState)return;
     if(!resizePolicy)resizePolicy={...messageState};
+    // WebKit may apply a delayed focus scroll even after the viewport and
+    // UIKit animation agree. Keep the bottom anchor until the reader actually
+    // touches/scrolls the messages, rather than interpreting that as intent.
+    if(resizePolicy.bottom)keyboardAnchor={...resizePolicy};
     const owner=++resizeGeneration;resizeStarted=performance.now();clearTimeout(resizeTimer);
     // Hardware keyboards may never produce a native frame change.
     resizeTimer=setTimeout(()=>endResize(owner),1200);
@@ -109,14 +115,20 @@
     if (event.target !== messages || !messageState) return;
     // WebKit can emit scroll while shrinking/clamping the pane. Keep the
     // pre-resize bottom policy until the new geometry has been applied.
-    if (resizePolicy || messages.clientHeight !== messageState.height) { update(); return; }
+    if (resizePolicy || keyboardAnchor || messages.clientHeight !== messageState.height) { update(); return; }
     rememberMessages();
   }, { capture: true, passive: true });
   document.addEventListener('load', event => { if (messages?.contains(event.target)) update(); }, true);
   // Capture reading intent before WebKit's focus scrolling, which can happen
   // before the first keyboard frame notification reaches the native bridge.
   document.addEventListener('focus',event=>{if(!viewport?.keyboardVisible&&event.target.matches?.('input,textarea,[contenteditable="true"]'))beginResize();},true);
-  document.addEventListener('pointerdown',event=>{if(messages?.contains(event.target)&&resizePolicy){resizePolicy=null;clearTimeout(resizeTimer);resizeGeneration++;rememberMessages();}},{capture:true,passive:true});
+  function readerInteraction(event){
+    if(!messages?.contains(event.target))return;
+    keyboardAnchor=null;resizePolicy=null;clearTimeout(resizeTimer);resizeGeneration++;rememberMessages();
+  }
+  document.addEventListener('pointerdown',readerInteraction,{capture:true,passive:true});
+  document.addEventListener('wheel',readerInteraction,{capture:true,passive:true});
+  document.addEventListener('keydown',event=>{if(['ArrowUp','ArrowDown','PageUp','PageDown','Home','End',' '].includes(event.key))readerInteraction(event);},true);
   document.addEventListener('focusin', schedule);
   window.addEventListener('resize', schedule);
   window.visualViewport?.addEventListener('resize',schedule);
