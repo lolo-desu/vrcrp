@@ -147,6 +147,7 @@ static UIView *ERPFocusedView(UIView *view) {
 @property(nonatomic) NSUInteger keyboardResizeGeneration;
 #if ERP_TESTING
 @property(nonatomic) BOOL verifyTrimDuringBack;
+@property(nonatomic) BOOL verifyRecoveryProtected;
 @property(nonatomic) NSTimeInterval verifyNavigationStarted;
 @property(nonatomic) BOOL verifyGestureBegan;
 @property(nonatomic) BOOL verifyColdEntryArmed;
@@ -350,6 +351,21 @@ static UIView *ERPFocusedView(UIView *view) {
     NSUInteger owner=++self.loadingGeneration;
     [UIView animateWithDuration:UIAccessibilityIsReduceMotionEnabled()?0:.22 animations:^{ self.loadingCover.alpha=0; }
         completion:^(BOOL finished) { if(owner!=self.loadingGeneration)return;self.loadingCover.hidden=YES;[self.recoveryImage removeFromSuperview];self.recoveryImage=nil;self.loadingPanel.backgroundColor=UIColor.clearColor; }];
+}
+- (BOOL)contentPaintedForKey:(id)key {
+    // A queued message from the discarded document must not reveal the reload.
+    if(![key isKindOfClass:NSString.class]||![key length]||[key length]>180||![key isEqual:self.pageNavigation.currentKey])return NO;
+    [self.pageNavigation painted:key];[self captureSnapshot];
+    if(self.recoveringContent){
+        self.recoveringContent=NO;[self contentReady];
+#if ERP_TESTING
+        if([NSProcessInfo.processInfo.arguments containsObject:@"--verify-gestures"]){
+            NSString *script=[NSString stringWithFormat:@"window.__fixtureRecoveryComplete?.(%@)",self.verifyRecoveryProtected?@"true":@"false"];
+            [self.web evaluateJavaScript:script completionHandler:nil];
+        }
+#endif
+    }
+    return YES;
 }
 - (void)createRefreshHint {
     self.refreshSurface=[UIView new];self.refreshSurface.userInteractionEnabled=NO;self.refreshSurface.clipsToBounds=YES;self.refreshSurface.hidden=YES;[self.view addSubview:self.refreshSurface];
@@ -616,7 +632,14 @@ static UIView *ERPFocusedView(UIView *view) {
         }
         if([NSProcessInfo.processInfo.arguments containsObject:@"--verify-gestures"]){
             if([kind isEqual:@"verifyTrimDuringBack"]){self.verifyTrimDuringBack=YES;return;}
-            if([kind isEqual:@"verifyContentRecovery"]){[self webViewWebContentProcessDidTerminate:self.web];return;}
+            if([kind isEqual:@"verifyContentRecovery"]){
+                NSString *discardedKey=self.pageNavigation.currentKey;
+                [self webViewWebContentProcessDidTerminate:self.web];
+                // Deliver the old document's late paint before the reload routes.
+                BOOL accepted=[self contentPaintedForKey:discardedKey];
+                self.verifyRecoveryProtected=!accepted&&self.recoveringContent&&!self.hasContent&&!self.loadingCover.hidden&&self.loadingCover.alpha>=.99;
+                return;
+            }
         }
 #endif
         NSString *owner=body[@"entryKey"];
@@ -664,12 +687,7 @@ static UIView *ERPFocusedView(UIView *view) {
         } else if ([kind isEqual:@"willNavigate"]) {
             if(!self.keyboardVisible&&!self.websiteOverlay&&!self.profileOverlay&&!self.rowPressed&&!self.pageNavigation.transitioning)[self.pageNavigation capture];
         } else if ([kind isEqual:@"pagePainted"]) {
-            NSString *key=body[@"entryKey"];if([key isKindOfClass:NSString.class]&&key.length<=180){[self.pageNavigation painted:key];[self captureSnapshot];if(self.recoveringContent){
-                self.recoveringContent=NO;[self contentReady];
-#if ERP_TESTING
-                if([NSProcessInfo.processInfo.arguments containsObject:@"--verify-gestures"])[self.web evaluateJavaScript:@"window.__fixtureRecoveryComplete?.()" completionHandler:nil];
-#endif
-            }}
+            [self contentPaintedForKey:body[@"entryKey"]];
         } else if ([kind isEqual:@"routeSettled"]) {
             NSString *key=body[@"entryKey"];
             if([key isKindOfClass:NSString.class]&&key.length<=180){[self.pageNavigation settled:key];if(!self.keyboardVisible&&!self.websiteOverlay&&!self.profileOverlay&&!self.rowPressed)[self.pageNavigation capture];}

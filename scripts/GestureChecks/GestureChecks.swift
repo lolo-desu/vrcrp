@@ -95,6 +95,7 @@ final class GestureChecks: XCTestCase {
         app.buttons["页面恢复测试"].tap()
         let recovering=app.staticTexts["正在恢复页面…"]
         XCTAssertTrue(app.staticTexts["页面已恢复"].waitForExistence(timeout:12),"No painted-page recovery acknowledgment arrived")
+        XCTAssertTrue(app.staticTexts["过期绘制未打断恢复"].exists,"A stale document paint removed the recovery cover")
         XCTAssertTrue(app.staticTexts["资料已就绪"].waitForExistence(timeout:12))
         let retry=app.buttons["重新连接"]
         let photo=app.buttons["资料照片"]
