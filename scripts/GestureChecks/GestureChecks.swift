@@ -111,7 +111,7 @@ final class GestureChecks: XCTestCase {
         assertLivePhotoScroll(photo)
         backFromPhoto()
         app.coordinate(withNormalizedOffset:CGVector(dx:0.008,dy:0.4)).press(forDuration:0.05,thenDragTo:app.coordinate(withNormalizedOffset:CGVector(dx:0.94,dy:0.4)),withVelocity:.slow,thenHoldForDuration:0)
-        XCTAssertTrue(app.links["打开聊天"].waitForExistence(timeout:6),"Appearance refresh broke the second return")
+        XCTAssertTrue(app.links["虚构会话"].waitForExistence(timeout:6),"Appearance refresh broke the second return")
     }
     func openLikeSheet() {
         let list=app.links["喜欢列表"]
