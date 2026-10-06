@@ -5,6 +5,13 @@
 if(!Number.isInteger(history.state?.idx))history.replaceState({idx:0,key:'gesture-root'},'',location.href);
 window.sheetCloses=0;window.sheetActions=0;let renderedPath=null;
 window.__fixtureRecoveryComplete=protectedPaint=>{const badge=document.createElement('span');badge.style.cssText='position:fixed;bottom:12px;right:12px;pointer-events:none;background:white;color:black;font-size:10px;z-index:1000';for(const text of ['页面已恢复',protectedPaint?'过期绘制未打断恢复':'过期绘制错误关闭恢复']){const line=document.createElement('span');line.textContent=text;line.style.display='block';badge.appendChild(line)}document.body.appendChild(badge)};
+window.__fixtureAppearanceReport=valid=>{const button=document.getElementById('appearance-refresh');if(button)button.textContent=valid?'返回层级已保留':'返回层级被清除'};
+function refreshAppearance(){
+const bridge=webkit.messageHandlers.erpNativeApp,state=history.state,trail=state.vrcrpTrail;
+bridge.postMessage({kind:'paletteChanged',palette:'mono',dark:false,background:[.96,.96,.96,1],surface:[1,1,1,1],primary:[.15,.15,.15,1]});
+bridge.postMessage({kind:'languageChanged'});
+bridge.postMessage({kind:'verifyAppearanceState',entryKey:state.key,parentKey:trail?.keys[trail.index-1],ancestors:trail?.keys.slice(Math.max(0,trail.index-24),trail.index)});
+}
 window.openPage=path=>{history.pushState({idx:(history.state?.idx||0)+1,key:Math.random().toString()},'',path+'?fixture=gestures');render()};
 function render(){const main=document.getElementById('main');const path=location.pathname;
 if(path===renderedPath){syncSheet();return;}renderedPath=path;window.scrollTo(0,0);
@@ -22,7 +29,12 @@ editor.addEventListener('touchend',e=>{if(start===null)return;const dx=e.changed
 }
 else{main.innerHTML='<div class="heading"><h1>个人资料</h1></div><p id="ready">资料正在排版</p><a href="http://localhost:18765/external/a">外链测试</a><a href="/likes" onclick="event.preventDefault();openPage(\'/likes\')">喜欢列表</a><a href="/profile/edit/basics" onclick="event.preventDefault();openPage(\'/profile/edit/basics\')">编辑名片测试</a><button style="font-size:12px;min-height:30px;padding:2px" onclick="webkit.messageHandlers.erpNativeApp.postMessage({kind:\'verifyTrimDuringBack\'})">返回内存测试</button><button style="font-size:12px;min-height:30px;padding:2px" onclick="webkit.messageHandlers.erpNativeApp.postMessage({kind:\'verifyContentRecovery\'})">页面恢复测试</button><button class="photo" aria-label="资料照片" onclick="document.getElementById(\'photo-count\').textContent=\'照片点击 1\'"><img draggable="true" alt="普通图片" src="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22100%22 height=%22100%22%3E%3Crect width=%22100%22 height=%22100%22 fill=%22%235c80c8%22/%3E%3C/svg%3E"></button><p id="photo-count">照片点击 0</p><div class="overflow-x-auto" onscroll="document.getElementById(\'album-status\').textContent=\'相册位置 \'+Math.round(this.scrollLeft)"><div class="slide">相册 A</div><div class="slide">相册 B</div><div class="slide">相册 C</div></div><p id="album-status">相册位置 0</p><button onclick="webkit.messageHandlers.erpNativeApp.postMessage({kind:\'verifySnapshotStall\'})">冻结截图测试</button><article class="bio"><p>可复制的个人资料文字</p>'+Array.from({length:35},(_,i)=>'<p>资料内容 '+i+'</p>').join('')+'<p>资料最后一段</p></article><span class="sticky-report" id="scroll-status">页面滚动 0</span>';
 setTimeout(()=>{if(location.pathname==='/u/peer')document.getElementById('ready').textContent='资料已就绪'},2100)}
-syncSheet();}
+syncSheet();
+if(location.pathname==='/u/peer'){
+const button=document.createElement('button');button.id='appearance-refresh';button.textContent='刷新外观与语言';button.style.cssText='font-size:12px;min-height:30px;padding:2px';button.onclick=refreshAppearance;
+document.querySelector('.photo')?.before(button);
+}
+}
 window.showSheet=()=>{
 if(!new URLSearchParams(location.search).has('u')){const url=new URL(location.href);url.searchParams.set('u','fixture-peer');history.pushState({usr:{profileModal:true},idx:(history.state?.idx||0)+1,key:Math.random().toString()},'',url);}
 syncSheet();};

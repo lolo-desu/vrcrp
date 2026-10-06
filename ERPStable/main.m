@@ -598,7 +598,7 @@ static UIView *ERPFocusedView(UIView *view) {
     NSDictionary *body = message.body;
     if ([message.name isEqualToString:@"erpNativeApp"]) {
         NSString *kind=body[@"kind"];
-        if([kind isEqual:@"languageChanged"]){[self.pageNavigation clear];self.snapshotGeneration++;return;}
+        if([kind isEqual:@"languageChanged"]){[self.pageNavigation invalidateSurfaces];self.snapshotGeneration++;return;}
         if([kind isEqual:@"backgroundStatus"]||[kind isEqual:@"backgroundListening"]){
             if([kind isEqual:@"backgroundListening"]&&[body[@"enabled"] isKindOfClass:NSNumber.class])self.chatNotifications.backgroundListeningEnabled=[body[@"enabled"] boolValue];
             if(self.chatNotifications.onBackgroundStateChanged)self.chatNotifications.onBackgroundStateChanged([self.chatNotifications backgroundState]);return;
@@ -606,7 +606,7 @@ static UIView *ERPFocusedView(UIView *view) {
         if([kind isEqual:@"paletteChanged"]){
             if(![@[@"default",@"mono",@"blue",@"green",@"purple",@"orange",@"pink"] containsObject:body[@"palette"]])return;
             [NSUserDefaults.standardUserDefaults setObject:body[@"palette"] forKey:@"VRPalette"];
-            [self.pageNavigation clear];self.snapshotGeneration++;
+            [self.pageNavigation invalidateSurfaces];self.snapshotGeneration++;
             self.overrideUserInterfaceStyle=[body[@"dark"] isEqual:@YES]?UIUserInterfaceStyleDark:UIUserInterfaceStyleLight;
             if([body[@"background"] isKindOfClass:NSArray.class]&&[body[@"background"] count]==4){
                 UIColor *background=VRColor(body[@"background"],self.view.backgroundColor);
@@ -626,6 +626,12 @@ static UIView *ERPFocusedView(UIView *view) {
         }
         if([kind isEqual:@"verifyGestureReport"]&&[NSProcessInfo.processInfo.arguments containsObject:@"--verify-gestures"]){
             NSLog(@"Gesture trace JS %@ native key=%@ overlay=%d profile=%d handoff=%d transitioning=%d",body,self.pageNavigation.currentKey,self.websiteOverlay,self.profileOverlay,self.pageNavigation.handoff,self.pageNavigation.transitioning);return;
+        }
+        if([kind isEqual:@"verifyAppearanceState"]&&[NSProcessInfo.processInfo.arguments containsObject:@"--verify-gestures"]){
+            NSArray *ancestors=[self.pageNavigation valueForKey:@"ancestors"];
+            BOOL valid=ancestors.count>0&&[ancestors isEqual:body[@"ancestors"]]&&[self.pageNavigation.currentKey isEqual:body[@"entryKey"]]&&[[self.pageNavigation valueForKey:@"parentKey"] isEqual:body[@"parentKey"]];
+            NSString *script=[NSString stringWithFormat:@"window.__fixtureAppearanceReport?.(%@)",valid?@"true":@"false"];
+            [self.web evaluateJavaScript:script completionHandler:nil];return;
         }
         if([kind isEqual:@"verifySnapshotStall"]&&[self.web isKindOfClass:ERPVerificationWebView.class]){
             ((ERPVerificationWebView *)self.web).stallSnapshot=YES;return;
@@ -1248,7 +1254,7 @@ static UIView *ERPFocusedView(UIView *view) {
     self.loadingPanel.backgroundColor=[self.statusBarSurface.backgroundColor colorWithAlphaComponent:.97];self.loadingPanel.layer.cornerRadius=18;
     self.loadingPanel.layoutMargins=UIEdgeInsetsMake(18,18,18,18);self.loadingPanel.layoutMarginsRelativeArrangement=YES;
     self.retryButton.hidden=YES;self.loadingCaption.text=@"正在恢复页面…";[self.spinner startAnimating];
-    self.snapshotGeneration++;[self.pageNavigation clear];[self.pageNavigation cancelCapture];[self finishRefresh];
+    self.snapshotGeneration++;[self.pageNavigation resetDocument];[self.pageNavigation cancelCapture];[self finishRefresh];
     self.horizontalZones=@[];self.selectionZones=@[];self.textSelected=NO;self.rowPressed=NO;self.profileOverlay=NO;self.websiteOverlay=NO;
     self.canGoBack=NO;self.navModelVisible=NO;[self restoreNavigation];[self updateBackAvailability];
     [webView reload];

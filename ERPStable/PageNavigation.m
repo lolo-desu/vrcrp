@@ -245,6 +245,15 @@
     for(NSString *path in self.paths.allKeys)
         if(!self.retainedPages[self.paths[path]])[self.paths removeObjectForKey:path];
 }
+- (void)invalidateSurfaces {
+    // Appearance changes invalidate raster colors, not the route or a drag.
+    // Active presentation views retain their own images until the handoff ends.
+    [self cancelCapture];[self.images removeAllObjects];[self.retainedPages removeAllObjects];
+    [self.paths removeAllObjects];[self.placeholderLayouts removeAllObjects];
+}
+- (void)resetDocument {
+    [self clear];self.currentKey=@"";self.parentKey=nil;self.currentPath=@"";self.parentPath=nil;self.routeReady=NO;
+}
 - (void)cancelCapture { self.captureGeneration++;self.captureAgain=NO; }
 - (void)finishCaptureRequest:(NSUInteger)request {
     if(request!=self.captureRequest)return;
